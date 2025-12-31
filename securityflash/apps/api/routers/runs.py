@@ -206,3 +206,77 @@ def get_run_stats(run_id: str, db: Session = Depends(get_db)):
         "evidence_count": evidence_count,
         "last_activity_at": last_event.timestamp.isoformat() if last_event else None
     }
+
+
+@router.get("/runs/{run_id}/executions")
+def get_run_executions(run_id: str, db: Session = Depends(get_db)):
+    """
+    Get all executed actions for a run.
+
+    Returns action specs with status=EXECUTED, showing what the agent actually did.
+    """
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    executions = db.query(ActionSpec).filter(
+        ActionSpec.run_id == run_id,
+        ActionSpec.status == "EXECUTED"
+    ).order_by(ActionSpec.created_at.asc()).all()
+
+    # Format for UI
+    result = []
+    for action in executions:
+        result.append({
+            "id": str(action.id),
+            "tool": action.action_json.get("tool"),
+            "target": action.action_json.get("target"),
+            "arguments": action.action_json.get("arguments"),
+            "proposed_by": action.proposed_by,
+            "risk_score": action.risk_score,
+            "approval_tier": action.approval_tier,
+            "created_at": action.created_at.isoformat(),
+            "executed_at": action.updated_at.isoformat() if action.updated_at else None
+        })
+
+    return result
+
+
+@router.post("/runs/{run_id}/report/generate")
+def generate_run_report(run_id: str, db: Session = Depends(get_db)):
+    """
+    Generate report for a run.
+
+    Creates a summary report with all findings, evidence, and audit trail.
+    """
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # TODO: Implement actual report generation logic
+    # For now, return a placeholder
+    return {
+        "run_id": str(run.id),
+        "status": "generating",
+        "message": "Report generation started. Poll GET /runs/{run_id}/report for status."
+    }
+
+
+@router.get("/runs/{run_id}/report")
+def get_run_report(run_id: str, db: Session = Depends(get_db)):
+    """
+    Get generated report for a run.
+
+    Returns report metadata and download link if available.
+    """
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # TODO: Implement actual report retrieval logic
+    # For now, return a placeholder
+    return {
+        "run_id": str(run.id),
+        "status": "not_implemented",
+        "message": "Report generation not yet implemented"
+    }

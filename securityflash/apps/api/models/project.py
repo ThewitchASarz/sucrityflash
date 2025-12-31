@@ -14,6 +14,7 @@ class Project(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     customer_id = Column(String(255), nullable=False, index=True)
+    primary_target_url = Column(String(500), nullable=True)  # Used to prefill first scope
     status = Column(String(50), nullable=False, default="active")
     start_date = Column(DateTime(timezone=True), nullable=True)
     end_date = Column(DateTime(timezone=True), nullable=True)

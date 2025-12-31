@@ -97,3 +97,36 @@ class MinIOStore:
         finally:
             response.close()
             response.release_conn()
+
+    def get_presigned_url(self, artifact_uri: str, expires_seconds: int = 3600) -> str:
+        """
+        Generate presigned URL for downloading evidence artifact.
+
+        Args:
+            artifact_uri: S3 URI (e.g., s3://bucket/run_id/evidence_id.json)
+            expires_seconds: URL expiration time in seconds (default: 1 hour)
+
+        Returns:
+            Presigned URL string
+        """
+        from datetime import timedelta
+
+        # Parse S3 URI: s3://bucket/path
+        if not artifact_uri.startswith("s3://"):
+            raise ValueError(f"Invalid S3 URI: {artifact_uri}")
+
+        parts = artifact_uri[5:].split("/", 1)  # Remove "s3://" and split
+        if len(parts) != 2:
+            raise ValueError(f"Invalid S3 URI format: {artifact_uri}")
+
+        bucket_name, object_name = parts
+
+        try:
+            url = self.client.presigned_get_object(
+                bucket_name,
+                object_name,
+                expires=timedelta(seconds=expires_seconds)
+            )
+            return url
+        except S3Error as e:
+            raise Exception(f"Failed to generate presigned URL: {e}")

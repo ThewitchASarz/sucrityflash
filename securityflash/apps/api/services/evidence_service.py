@@ -90,3 +90,19 @@ class EvidenceService:
 
     # ❌ delete() does NOT exist (MUST-FIX C)
     # ❌ update() does NOT exist (MUST-FIX C)
+
+
+def get_download_url(artifact_uri: str) -> str:
+    """
+    Generate presigned download URL for evidence artifact.
+
+    Args:
+        artifact_uri: S3 URI (e.g., s3://bucket/run_id/evidence_id.json)
+
+    Returns:
+        Presigned URL string (valid for 1 hour)
+    """
+    from apps.workers.storage.minio_store import MinIOStore
+
+    store = MinIOStore()
+    return store.get_presigned_url(artifact_uri, expires_seconds=3600)

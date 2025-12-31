@@ -95,6 +95,16 @@ def lock_scope(
     return scope
 
 
+@router.get("", response_model=list[ScopeResponse])
+def list_scopes(project_id: str, db: Session = Depends(get_db)):
+    """List all scopes for a project."""
+    scopes = db.query(Scope).filter(
+        Scope.project_id == project_id
+    ).order_by(Scope.created_at.desc()).all()
+
+    return scopes
+
+
 @router.get("/{scope_id}", response_model=ScopeResponse)
 def get_scope(project_id: str, scope_id: str, db: Session = Depends(get_db)):
     """Get scope by ID."""
@@ -107,3 +117,101 @@ def get_scope(project_id: str, scope_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Scope not found")
 
     return scope
+
+
+@router.put("/{scope_id}", response_model=ScopeResponse)
+def update_scope(
+    project_id: str,
+    scope_id: str,
+    scope_data: ScopeCreate,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Update a scope. Fails if scope is locked."""
+    scope = db.query(Scope).filter(
+        Scope.id == scope_id,
+        Scope.project_id == project_id
+    ).first()
+
+    if not scope:
+        raise HTTPException(status_code=404, detail="Scope not found")
+
+    if scope.locked_at:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot update locked scope. Locked scopes are immutable to ensure run integrity."
+        )
+
+    # Update scope_json
+    scope.scope_json = {
+        "scope_type": scope_data.scope_type,
+        "targets": [t.dict() for t in scope_data.targets],
+        "excluded_targets": [t.dict() for t in scope_data.excluded_targets],
+        "attack_vectors_allowed": scope_data.attack_vectors_allowed,
+        "attack_vectors_prohibited": scope_data.attack_vectors_prohibited,
+        "approved_tools": scope_data.approved_tools,
+        "time_restrictions": scope_data.time_restrictions.dict() if scope_data.time_restrictions else None
+    }
+
+    # Increment version (updated_at will be set automatically by onupdate)
+    scope.version += 1
+
+    db.commit()
+    db.refresh(scope)
+
+    # Audit log
+    current_user = get_current_user(request)
+    audit_log(
+        db=db,
+        run_id=None,
+        event_type="SCOPE_UPDATED",
+        actor=current_user,
+        details={
+            "scope_id": str(scope.id),
+            "project_id": project_id,
+            "version": scope.version
+        }
+    )
+
+    return scope
+
+
+@router.delete("/{scope_id}", status_code=204)
+def delete_scope(
+    project_id: str,
+    scope_id: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Delete a scope. Fails if scope is locked."""
+    scope = db.query(Scope).filter(
+        Scope.id == scope_id,
+        Scope.project_id == project_id
+    ).first()
+
+    if not scope:
+        raise HTTPException(status_code=404, detail="Scope not found")
+
+    if scope.locked_at:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete locked scope. Locked scopes are immutable to ensure run integrity."
+        )
+
+    # Audit log before deletion
+    current_user = get_current_user(request)
+    audit_log(
+        db=db,
+        run_id=None,
+        event_type="SCOPE_DELETED",
+        actor=current_user,
+        details={
+            "scope_id": str(scope.id),
+            "project_id": project_id
+        }
+    )
+
+    db.delete(scope)
+    db.commit()
+
+    return None

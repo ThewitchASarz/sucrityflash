@@ -75,6 +75,34 @@ def list_evidence(run_id: str, db: Session = Depends(get_db)):
     return EvidenceService.list_by_run(db=db, run_id=run_id)
 
 
+@router.get("/{evidence_id}/download")
+def download_evidence(run_id: str, evidence_id: str, db: Session = Depends(get_db)):
+    """
+    Get presigned download URL for evidence artifact.
+
+    Returns a temporary URL that can be used to download the artifact from MinIO.
+    """
+    evidence = EvidenceService.get(db=db, evidence_id=evidence_id)
+
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+
+    if str(evidence.run_id) != run_id:
+        raise HTTPException(status_code=404, detail="Evidence not found for this run")
+
+    # Generate presigned URL (valid for 1 hour)
+    from apps.api.services.evidence_service import get_download_url
+    download_url = get_download_url(evidence.artifact_uri)
+
+    return {
+        "evidence_id": str(evidence.id),
+        "artifact_uri": evidence.artifact_uri,
+        "download_url": download_url,
+        "artifact_hash": evidence.artifact_hash,
+        "expires_in_seconds": 3600
+    }
+
+
 @router.delete("/{evidence_id}")
 def delete_evidence(run_id: str, evidence_id: str):
     """
