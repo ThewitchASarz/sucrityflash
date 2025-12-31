@@ -1,0 +1,41 @@
+"""
+Runs API - BFF Proxy to SecurityFlash V1
+
+Runs can be accessed two ways in V1:
+- Nested under projects: /api/v1/projects/{project_id}/runs
+- Direct access: /api/v1/runs/{run_id}
+"""
+from fastapi import APIRouter, Request, Depends
+from api.proxy import get_proxy, SecurityFlashProxy
+
+router = APIRouter(tags=["Runs"])
+
+# List runs for a project
+@router.get("/api/v1/projects/{project_id}/runs")
+async def list_project_runs(project_id: str, request: Request, proxy: SecurityFlashProxy = Depends(get_proxy)):
+    return await proxy.proxy_request(request, f"/api/v1/projects/{project_id}/runs")
+
+# Create run for a project
+@router.post("/api/v1/projects/{project_id}/runs")
+async def create_project_run(project_id: str, request: Request, proxy: SecurityFlashProxy = Depends(get_proxy)):
+    return await proxy.proxy_request(request, f"/api/v1/projects/{project_id}/runs")
+
+# Get specific run
+@router.get("/api/v1/runs/{run_id}")
+async def get_run(run_id: str, request: Request, proxy: SecurityFlashProxy = Depends(get_proxy)):
+    return await proxy.proxy_request(request, f"/api/v1/runs/{run_id}")
+
+# Start a run
+@router.post("/api/v1/runs/{run_id}/start")
+async def start_run(run_id: str, request: Request, proxy: SecurityFlashProxy = Depends(get_proxy)):
+    return await proxy.proxy_request(request, f"/api/v1/runs/{run_id}/start")
+
+# Get run timeline (shows real agent activity)
+@router.get("/api/v1/runs/{run_id}/timeline")
+async def get_run_timeline(run_id: str, request: Request, proxy: SecurityFlashProxy = Depends(get_proxy)):
+    return await proxy.proxy_request(request, f"/api/v1/runs/{run_id}/timeline")
+
+# Get run stats (shows proof of work)
+@router.get("/api/v1/runs/{run_id}/stats")
+async def get_run_stats(run_id: str, request: Request, proxy: SecurityFlashProxy = Depends(get_proxy)):
+    return await proxy.proxy_request(request, f"/api/v1/runs/{run_id}/stats")

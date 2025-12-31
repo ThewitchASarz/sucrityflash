@@ -1,0 +1,114 @@
+"""
+V2 BFF (Backend-For-Frontend) - Stateless Proxy to SecurityFlash V1
+
+This is a thin proxy layer. It has:
+- NO database (V1 is the source of truth)
+- NO local state
+- NO governance logic
+- NO audit logs
+
+It ONLY forwards requests to SecurityFlash V1 and returns responses.
+"""
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+import os
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan."""
+    # Startup
+    print("Starting V2 BFF (Stateless Proxy)")
+    print(f"SecurityFlash V1 URL: {os.getenv('SECURITYFLASH_API_URL', 'NOT SET')}")
+    
+    # Verify V1 URL is set
+    if not os.getenv("SECURITYFLASH_API_URL"):
+        print("⚠️  WARNING: SECURITYFLASH_API_URL not set - proxy will fail")
+    
+    yield
+    
+    # Shutdown
+    print("✓ V2 BFF shutting down")
+
+
+# Create FastAPI app
+app = FastAPI(
+    title="SecurityFlash V2 BFF",
+    version="2.0.0",
+    description="Stateless proxy to SecurityFlash V1 - No local database, no local state",
+    lifespan=lifespan,
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # Frontend URLs
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    import httpx
+    
+    v1_url = os.getenv("SECURITYFLASH_API_URL")
+    v1_healthy = False
+    
+    if v1_url:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{v1_url}/health")
+                v1_healthy = response.status_code == 200
+        except Exception:
+            pass
+    
+    return {
+        "status": "healthy" if v1_healthy else "degraded",
+        "app": "V2 BFF (Stateless Proxy)",
+        "version": "2.0.0",
+        "v1_url": v1_url,
+        "v1_healthy": v1_healthy,
+        "note": "V2 is stateless - all data lives in SecurityFlash V1"
+    }
+
+
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "message": "SecurityFlash V2 BFF - Stateless Proxy",
+        "version": "2.0.0",
+        "docs": "/docs",
+        "note": "All endpoints proxy to SecurityFlash V1",
+        "v1_url": os.getenv("SECURITYFLASH_API_URL", "NOT SET")
+    }
+
+
+# Import and include routers (all are pure proxies)
+from api import (
+    auth, projects, scopes, test_plans, runs,
+    approvals, evidence, findings, reports, audit
+)
+
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(projects.router, prefix="/api/v1/projects", tags=["Projects"])
+# Scopes, Runs, Evidence, and Approvals routers define full paths internally (no prefix)
+app.include_router(scopes.router)
+app.include_router(runs.router)
+app.include_router(evidence.router)
+app.include_router(approvals.router)
+app.include_router(test_plans.router, prefix="/api/v1/test-plans", tags=["Test Plans"])
+app.include_router(findings.router, prefix="/api/v1/findings", tags=["Findings"])
+app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
+app.include_router(audit.router, prefix="/api/v1/audit", tags=["Audit"])
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", "3001"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
