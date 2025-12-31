@@ -1,0 +1,119 @@
+services:
+  # PostgreSQL for SecurityFlash V1
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: securityflash
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for SecurityFlash V1
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # MinIO for SecurityFlash V1 (evidence storage)
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # SecurityFlash V1 - Control Plane (API)
+  securityflash-api:
+    build:
+      context: ./securityflash
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/securityflash
+      - REDIS_URL=redis://redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=securityflash-evidence
+      - OPENAI_API_KEY=sk-placeholder-key-for-demo
+      - POLICY_SIGNING_SECRET=dev-policy-signing-secret-change-in-production-base64
+      - SECRET_KEY=dev-secret-key-change-in-production-12345678901234567890
+      - ENVIRONMENT=development
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    command: ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  # SecurityFlash V1 - Worker Runtime
+  securityflash-worker:
+    build:
+      context: ./securityflash
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/securityflash
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
+    depends_on:
+      - securityflash-api
+      - redis
+    command: ["python", "apps/workers/worker_main.py"]
+
+  # V2 BFF (Backend-For-Frontend) - Stateless Proxy
+  v2-bff:
+    build:
+      context: ./pentest-ai-platform/backend
+      dockerfile: Dockerfile
+    environment:
+      - SECURITYFLASH_API_URL=http://securityflash-api:8000
+      - PORT=3001
+      - ENVIRONMENT=development
+    ports:
+      - "3001:3001"
+    depends_on:
+      - securityflash-api
+    command: ["python", "main.py"]
+
+  # V2 Frontend (Next.js)
+  v2-frontend:
+    build:
+      context: ./pentest-ai-platform/frontend
+      dockerfile: Dockerfile
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - v2-bff
+    command: ["npm", "run", "dev"]
+
+volumes:
+  postgres_data:
+  minio_data:
