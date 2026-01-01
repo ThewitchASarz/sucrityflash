@@ -1,0 +1,78 @@
+name: Frontend Production Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "pentest-ai-platform/frontend/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "pentest-ai-platform/frontend/**"
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pentest-ai-platform/frontend
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      NODE_VERSION: "18"
+      FRONTEND_ARTIFACT_BUCKET: ${{ secrets.FRONTEND_ARTIFACT_BUCKET }}
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+      REACT_APP_BFF_ORIGIN: ${{ secrets.REACT_APP_BFF_ORIGIN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: "pentest-ai-platform/frontend/package-lock.json"
+
+      - name: Install dependencies
+        run: |
+          npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+
+      - name: Build production assets
+        run: npm run build
+
+      - name: Upload build artifact (for inspection)
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: build
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Sync build to CDN bucket
+        if: ${{ env.FRONTEND_ARTIFACT_BUCKET != '' }}
+        run: |
+          aws s3 sync ./build "s3://${FRONTEND_ARTIFACT_BUCKET}/" \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable"
+
+      - name: Invalidate CDN cache
+        if: ${{ env.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        uses: aws-actions/aws-cloudfront-invalidation@v1.6.1
+        with:
+          distribution-id: ${{ env.CLOUDFRONT_DISTRIBUTION_ID }}
+          paths: |
+            /index.html
+            /asset-manifest.json
+            /static/css/*
+            /static/js/*
