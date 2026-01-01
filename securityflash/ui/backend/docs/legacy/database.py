@@ -3,13 +3,16 @@ Database connection and session management.
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
-from config import settings
+import os
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 
 # Create async engine
 engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
+    DATABASE_URL,
+    echo=DEBUG,
     pool_size=10,
     max_overflow=20,
     pool_pre_ping=True,

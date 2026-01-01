@@ -52,6 +52,7 @@ import logging
 import requests
 from datetime import datetime
 from typing import List, Dict, Any
+from apps.api.core.config import settings
 from apps.workers.token_verify import verify_action_token
 from apps.workers.tool_allowlist import is_tool_allowed
 from apps.workers.tools.httpx_runner import run_httpx_safe
@@ -67,8 +68,8 @@ logging.basicConfig(
 logger = logging.getLogger("worker")
 
 # Configuration
-API_BASE_URL = "http://localhost:8000/api/v1"
-POLL_INTERVAL_SEC = 5
+API_BASE_URL = settings.CONTROL_PLANE_API_URL or f"http://localhost:{settings.PORT}/api/v1"
+POLL_INTERVAL_SEC = settings.WORKER_POLL_INTERVAL_SEC
 
 
 def fetch_approved_actions() -> List[Dict[str, Any]]:

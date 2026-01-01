@@ -5,6 +5,7 @@ Agents use this client to communicate with the Control Plane API.
 """
 import requests
 from typing import Dict, Any, List, Optional
+from apps.api.core.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,14 +14,14 @@ logger = logging.getLogger(__name__)
 class ControlPlaneClient:
     """HTTP client for Control Plane API."""
 
-    def __init__(self, base_url: str = "http://localhost:8000/api/v1"):
+    def __init__(self, base_url: Optional[str] = None):
         """
         Initialize Control Plane client.
 
         Args:
             base_url: Base URL for Control Plane API
         """
-        self.base_url = base_url
+        self.base_url = base_url or settings.CONTROL_PLANE_API_URL or f"http://localhost:{settings.PORT}/api/v1"
         self.session = requests.Session()
 
     def get_run(self, run_id: str) -> Dict[str, Any]:
