@@ -22,7 +22,7 @@ class Settings:
     # BFF server
     PORT: int = int(os.getenv("PORT", "3001"))
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
-    
+
     def __init__(self):
         if not self.SECURITYFLASH_API_URL:
             print("⚠️  WARNING: SECURITYFLASH_API_URL not set")

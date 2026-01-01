@@ -121,6 +121,48 @@ def start_run(
     return run
 
 
+@router.post("/runs/{run_id}/stop", response_model=RunResponse)
+def stop_run(
+    run_id: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Stop a running run early.
+
+    Transitions run from RUNNING → FAILED to signal termination to agents/workers.
+    """
+    run = db.query(Run).filter(Run.id == run_id).first()
+
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.status != RunStatus.RUNNING:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Run must be RUNNING to stop (current: {run.status.value})"
+        )
+
+    current_user = get_current_user(request)
+    transition_run_status(run, RunStatus.FAILED, current_user, db)
+    run.completed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(run)
+
+    audit_log(
+        db=db,
+        run_id=run.id,
+        event_type="RUN_STOPPED",
+        actor=current_user,
+        details={
+            "run_id": str(run.id),
+            "stopped_at": run.completed_at.isoformat()
+        }
+    )
+
+    return run
+
+
 @router.get("/runs/{run_id}", response_model=RunResponse)
 def get_run(run_id: str, db: Session = Depends(get_db)):
     """Get run status and details."""

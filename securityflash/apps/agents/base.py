@@ -36,7 +36,7 @@ class BaseAgent(ABC):
         self,
         run_id: str,
         agent_id: str,
-        api_base_url: str = "http://localhost:8000/api/v1",
+        api_base_url: str | None = None,
         max_iterations: int = None,
         checkpoint_interval: int = 5
     ):
@@ -56,7 +56,8 @@ class BaseAgent(ABC):
         self.checkpoint_interval = checkpoint_interval
 
         # Initialize clients
-        self.api_client = ControlPlaneClient(api_base_url)
+        resolved_api_base = api_base_url or settings.CONTROL_PLANE_API_URL or f"http://localhost:{settings.PORT}/api/v1"
+        self.api_client = ControlPlaneClient(resolved_api_base)
         self.model_client = ModelClient()
         self.db_client = DBClient()
 
@@ -178,7 +179,7 @@ class BaseAgent(ABC):
     def propose_action(
         self,
         tool: str,
-        arguments: List[str],
+        arguments: Any,
         target: str,
         justification: str = ""
     ) -> Dict[str, Any]:

@@ -8,6 +8,9 @@ from typing import Optional
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
+    # API
+    PORT: int = 8000
+
     # Database
     DATABASE_URL: str
 
@@ -38,6 +41,9 @@ class Settings(BaseSettings):
     # Agent Configuration
     AGENT_MAX_ITERATIONS: int = 100
     AGENT_CHECKPOINT_INTERVAL: int = 5
+
+    # Control Plane URL (used by agents/workers when not explicitly provided)
+    CONTROL_PLANE_API_URL: str | None = None
 
     class Config:
         env_file = ".env"

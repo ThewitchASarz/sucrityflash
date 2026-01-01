@@ -52,10 +52,12 @@ import logging
 import requests
 from datetime import datetime
 from typing import List, Dict, Any
+from apps.api.core.config import settings
 from apps.workers.token_verify import verify_action_token
 from apps.workers.tool_allowlist import is_tool_allowed
 from apps.workers.tools.httpx_runner import run_httpx_safe
 from apps.workers.tools.nmap_runner import run_nmap_safe
+from apps.workers.tools.neurosploit_runner import run_neurosploit_safe
 from apps.workers.evidence_writer import write_evidence
 
 # Configure logging
@@ -66,8 +68,8 @@ logging.basicConfig(
 logger = logging.getLogger("worker")
 
 # Configuration
-API_BASE_URL = "http://localhost:8000/api/v1"
-POLL_INTERVAL_SEC = 5
+API_BASE_URL = settings.CONTROL_PLANE_API_URL or f"http://localhost:{settings.PORT}/api/v1"
+POLL_INTERVAL_SEC = settings.WORKER_POLL_INTERVAL_SEC
 
 
 def fetch_approved_actions() -> List[Dict[str, Any]]:
@@ -143,6 +145,11 @@ def execute_action(action: Dict[str, Any]):
             result = run_nmap_safe(
                 arguments=action_json["arguments"],
                 target=action_json["target"],
+                timeout_sec=30
+            )
+        elif tool == "neurosploit":
+            result = run_neurosploit_safe(
+                action_arguments=action_json["arguments"],
                 timeout_sec=30
             )
         else:
@@ -232,4 +239,3 @@ def worker_main():
 
 if __name__ == "__main__":
     worker_main()
-

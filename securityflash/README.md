@@ -10,6 +10,7 @@
 - **Real-time Monitoring**: Live dashboard showing agent activity and pending approvals
 - **Policy Governance**: Risk scoring, approval tiers, and rate limiting
 - **Full Audit Trail**: Every action logged with timestamps and actor attribution
+- **NeuroSploit-Aware**: Workers and Policy Engine allow a curated set of NeuroSploit recon modules for autonomous agent plans
 
 ## 🏗️ Architecture
 

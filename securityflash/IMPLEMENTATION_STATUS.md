@@ -103,13 +103,6 @@
 
 ## ⚠️ NOT YET IMPLEMENTED
 
-### Agent Runtime
-- [ ] BaseAgent abstract class
-- [ ] OrchestratorAgent (minimal V1)
-- [ ] Control Plane client
-- [ ] Model client (OpenAI)
-- [ ] DB client (for checkpoints)
-
 ### Shared Packages
 - [ ] packages/core/schemas (shared ActionSpec, Policy schemas)
 - [ ] packages/core/utils (hashing, time utilities)
