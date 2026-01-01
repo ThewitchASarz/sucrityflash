@@ -49,8 +49,8 @@ class PolicyEvaluator:
     7. JWT token issuance (if auto-approved)
     """
 
-    # V1 hardcoded tool allowlist
-    ALLOWED_TOOLS = {"httpx", "nmap"}
+    # V1 hardcoded tool allowlist (extended with NeuroSploit recon modules)
+    ALLOWED_TOOLS = {"httpx", "nmap", "neurosploit"}
 
     # Risk score thresholds
     RISK_TIER_B_THRESHOLD = 0.4  # < 0.4 = auto-approve
@@ -232,7 +232,15 @@ class PolicyEvaluator:
         """Validate arguments for safety."""
         arguments = action_spec.get("arguments", [])
 
-        for arg in arguments:
+        # Support both list-style args (httpx/nmap) and dict-style configs (NeuroSploit)
+        normalized_args = []
+        if isinstance(arguments, dict):
+            for key, value in arguments.items():
+                normalized_args.append(f"{key}={value}")
+        else:
+            normalized_args = list(arguments)
+
+        for arg in normalized_args:
             arg_str = str(arg)
 
             # Check length

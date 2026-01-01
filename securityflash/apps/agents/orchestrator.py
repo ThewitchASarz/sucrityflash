@@ -101,6 +101,15 @@ class OrchestratorAgent(BaseAgent):
                         "justification": f"Port scan of {host} (extracted from {target_value})",
                         "arguments": {}
                     })
+                    plan.append({
+                        "action": "neurosploit",
+                        "target": host,
+                        "justification": f"NeuroSploit recon module against {host}",
+                        "arguments": {
+                            "module": "recon/portscan",
+                            "options": [host]
+                        }
+                    })
 
             elif target_type == "domain":
                 # Subdomain enumeration first
@@ -118,6 +127,15 @@ class OrchestratorAgent(BaseAgent):
                     "justification": f"Port scan of {target_value}",
                     "arguments": {}
                 })
+                plan.append({
+                    "action": "neurosploit",
+                    "target": target_value,
+                    "justification": f"NeuroSploit recon module against {target_value}",
+                    "arguments": {
+                        "module": "recon/portscan",
+                        "options": [target_value]
+                    }
+                })
 
             elif target_type == "ip":
                 # Direct nmap scan
@@ -126,6 +144,15 @@ class OrchestratorAgent(BaseAgent):
                     "target": target_value,
                     "justification": f"Port scan of {target_value}",
                     "arguments": {}
+                })
+                plan.append({
+                    "action": "neurosploit",
+                    "target": target_value,
+                    "justification": f"NeuroSploit recon module against {target_value}",
+                    "arguments": {
+                        "module": "recon/portscan",
+                        "options": [target_value]
+                    }
                 })
 
         logger.info(f"Recon plan built: {len(plan)} actions")
