@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     AGENT_CHECKPOINT_INTERVAL: int = 5
 
     # Control Plane URL (used by agents/workers when not explicitly provided)
-    CONTROL_PLANE_API_URL: str | None = None
+    CONTROL_PLANE_API_URL: Optional[str] = None
 
     class Config:
         env_file = ".env"
