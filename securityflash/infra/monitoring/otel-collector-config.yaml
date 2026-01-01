@@ -1,0 +1,40 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+  prometheus/securityflash:
+    config:
+      scrape_configs:
+        - job_name: securityflash-api
+          metrics_path: /metrics
+          static_configs:
+            - targets: ["api:8000"]
+        - job_name: securityflash-worker
+          metrics_path: /metrics
+          static_configs:
+            - targets: ["worker:9101"]
+
+processors:
+  batch: {}
+
+exporters:
+  awsemf:
+    namespace: securityflash
+    region: ${AWS_REGION}
+  googlecloud:
+    project: ${STACKDRIVER_PROJECT_ID}
+    metric:
+      prefix: securityflash
+  logging:
+    loglevel: info
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    metrics:
+      receivers: [prometheus/securityflash, otlp]
+      processors: [batch]
+      exporters: [awsemf, googlecloud, logging]

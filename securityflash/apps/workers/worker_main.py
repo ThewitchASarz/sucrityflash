@@ -18,6 +18,9 @@ import time
 import signal
 import sys
 import json
+import os
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
@@ -31,12 +34,63 @@ from apps.workers.tool_registry import TOOL_REGISTRY
 from apps.workers.runners.runner_factory import RunnerFactory
 from apps.api.core.config import settings
 import requests
+from apps.observability.metrics import (
+    CONTENT_TYPE_LATEST,
+    generate_latest,
+    increment_worker_error,
+    set_worker_liveness,
+    update_redis_streams_lag,
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+METRICS_STREAM_GROUPS = [
+    (settings.REDIS_STREAM_CONTROL_PLANE, settings.REDIS_STREAM_CONTROL_PLANE_GROUP),
+    (settings.REDIS_STREAM_AGENT, settings.REDIS_STREAM_AGENT_GROUP),
+    (settings.REDIS_STREAM_WORKER, settings.REDIS_STREAM_WORKER_GROUP),
+]
+
+
+def _metrics_handler_factory(worker_name: str):
+    class WorkerMetricsHandler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            if self.path.startswith("/metrics"):
+                payload = generate_latest()
+                self.send_response(200)
+                self.send_header("Content-Type", CONTENT_TYPE_LATEST)
+                self.end_headers()
+                self.wfile.write(payload)
+            elif self.path.startswith("/health") or self.path.startswith("/liveness"):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                body = {
+                    "status": "ok",
+                    "service": "worker",
+                    "worker": worker_name,
+                }
+                self.wfile.write(json.dumps(body).encode("utf-8"))
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, format, *args):  # noqa: A003
+            return
+
+    return WorkerMetricsHandler
+
+
+def start_metrics_server(port: int, worker_name: str) -> ThreadingHTTPServer:
+    """Launch a lightweight HTTP server for metrics and health endpoints."""
+    server = ThreadingHTTPServer(("0.0.0.0", port), _metrics_handler_factory(worker_name))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    logger.info("Worker metrics server listening on port %s", port)
+    return server
 
 
 class Worker:
@@ -61,6 +115,14 @@ class Worker:
         self.poll_interval_sec = poll_interval_sec
         self.api_base_url = api_base_url or f"http://localhost:{settings.PORT}/api/v1"
         self.running = True
+        self.worker_name = os.getenv("WORKER_NAME", "securityflash-worker")
+        self.metrics_port = int(os.getenv("WORKER_METRICS_PORT", settings.WORKER_METRICS_PORT))
+        self.metrics_server: Optional[ThreadingHTTPServer] = start_metrics_server(
+            self.metrics_port, self.worker_name
+        )
+        self.redis_metrics_thread = threading.Thread(
+            target=self._redis_metrics_loop, daemon=True
+        )
 
         # Handle graceful shutdown
         signal.signal(signal.SIGTERM, self._handle_shutdown)
@@ -70,12 +132,31 @@ class Worker:
         logger.info(f"Poll interval: {poll_interval_sec}s")
         logger.info(f"API base URL: {self.api_base_url}")
         logger.info(f"Supported tools: {RunnerFactory.get_supported_tools()}")
+        logger.info(f"Metrics port: {self.metrics_port}")
 
     def _handle_shutdown(self, signum, frame):
         """Handle shutdown signal."""
         logger.info(f"Received signal {signum}, shutting down gracefully...")
         self.running = False
-        sys.exit(0)
+        set_worker_liveness(self.worker_name, False)
+        self._shutdown_metrics()
+
+    def _shutdown_metrics(self):
+        """Stop the metrics HTTP server."""
+        if self.metrics_server:
+            try:
+                self.metrics_server.shutdown()
+            finally:
+                self.metrics_server = None
+
+    def _redis_metrics_loop(self):
+        """Continuously publish Redis Stream lag metrics."""
+        while self.running:
+            try:
+                update_redis_streams_lag(settings.REDIS_URL, METRICS_STREAM_GROUPS)
+            except Exception as exc:
+                logger.debug("Redis metrics loop failed: %s", exc, exc_info=True)
+            time.sleep(settings.REDIS_METRICS_INTERVAL_SEC)
 
     def start(self):
         """
@@ -84,6 +165,8 @@ class Worker:
         Polls DB for APPROVED actions and executes them.
         """
         logger.info("Worker starting main loop")
+        set_worker_liveness(self.worker_name, True)
+        self.redis_metrics_thread.start()
 
         while self.running:
             try:
@@ -96,9 +179,12 @@ class Worker:
 
             except Exception as e:
                 logger.error(f"Error in worker loop: {e}", exc_info=True)
+                increment_worker_error(self.worker_name)
                 time.sleep(self.poll_interval_sec)
 
         logger.info("Worker stopped")
+        set_worker_liveness(self.worker_name, False)
+        self._shutdown_metrics()
 
     def _poll_and_execute(self):
         """
@@ -132,6 +218,7 @@ class Worker:
                     self._execute_action(db, action_spec)
                 except Exception as e:
                     logger.error(f"Failed to execute action {action_spec.id}: {e}", exc_info=True)
+                    increment_worker_error(self.worker_name)
 
         finally:
             db.close()
@@ -295,6 +382,7 @@ class Worker:
 
         except Exception as e:
             logger.error(f"Execution failed for action {action_id}: {e}", exc_info=True)
+            increment_worker_error(self.worker_name)
 
             # PHASE 2: Mark execution as FAILED
             execution.status = ExecutionStatus.FAILED

@@ -39,10 +39,26 @@ Runtime Separation:
 
 Local dev: python -m uvicorn apps.api.main:app --reload
 """
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+
+from apps.api.core.config import settings
 from apps.api.core.logging import logger
-from apps.api.routers import projects, scopes, runs, action_specs, approvals, evidence, tools, executions, findings, manual_validation_tasks
+from apps.api.routers import (
+    action_specs,
+    approvals,
+    evidence,
+    executions,
+    findings,
+    manual_validation_tasks,
+    projects,
+    runs,
+    scopes,
+    tools,
+)
+from apps.observability.metrics import CONTENT_TYPE_LATEST, generate_latest, update_redis_streams_lag
 
 # Create FastAPI app
 app = FastAPI(
@@ -80,6 +96,13 @@ def health_check():
     return {"status": "healthy", "service": "control-plane"}
 
 
+@app.get("/metrics")
+def metrics():
+    """Prometheus metrics endpoint."""
+    data = generate_latest()
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+
+
 @app.on_event("startup")
 async def startup():
     """Startup event."""
@@ -88,8 +111,27 @@ async def startup():
     logger.info("Agent Runtime: apps/agents/runner.py (separate process)")
     logger.info("Worker Runtime: apps/workers/runner.py (separate process)")
 
+    async def _redis_metrics_loop():
+        stream_groups = [
+            (settings.REDIS_STREAM_CONTROL_PLANE, settings.REDIS_STREAM_CONTROL_PLANE_GROUP),
+            (settings.REDIS_STREAM_AGENT, settings.REDIS_STREAM_AGENT_GROUP),
+            (settings.REDIS_STREAM_WORKER, settings.REDIS_STREAM_WORKER_GROUP),
+        ]
+        while True:
+            await asyncio.to_thread(
+                update_redis_streams_lag,
+                settings.REDIS_URL,
+                stream_groups,
+            )
+            await asyncio.sleep(settings.REDIS_METRICS_INTERVAL_SEC)
+
+    app.state.redis_metrics_task = asyncio.create_task(_redis_metrics_loop())
+
 
 @app.on_event("shutdown")
 async def shutdown():
     """Shutdown event."""
     logger.info("SecurityFlash Control Plane shutting down...")
+    task = getattr(app.state, "redis_metrics_task", None)
+    if task:
+        task.cancel()

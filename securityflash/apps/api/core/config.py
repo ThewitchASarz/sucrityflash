@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     # Control Plane URL (used by agents/workers when not explicitly provided)
     CONTROL_PLANE_API_URL: Optional[str] = None
 
+    # Observability / Metrics
+    WORKER_METRICS_PORT: int = 9101
+    REDIS_STREAM_CONTROL_PLANE: str = "control_plane_events"
+    REDIS_STREAM_AGENT: str = "agent_events"
+    REDIS_STREAM_WORKER: str = "worker_events"
+    REDIS_STREAM_CONTROL_PLANE_GROUP: str = "agent_group"
+    REDIS_STREAM_AGENT_GROUP: str = "worker_group"
+    REDIS_STREAM_WORKER_GROUP: str = "control_plane_group"
+    REDIS_METRICS_INTERVAL_SEC: int = 15
+
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -16,6 +16,7 @@ from apps.api.services.policy_engine import PolicyEvaluator
 from apps.api.services.audit_service import audit_log
 from apps.api.services.status_fsm import transition_action_status
 from apps.api.core.security import get_current_user
+from apps.observability.metrics import record_approval_latency
 
 router = APIRouter(prefix="/api/v1/runs/{run_id}/approvals", tags=["approvals"])
 
@@ -119,6 +120,10 @@ def approve_action(
 
     db.commit()
     db.refresh(action)
+
+    # Observability
+    if action.created_at:
+        record_approval_latency(action.created_at)
 
     # Audit log
     audit_log(
