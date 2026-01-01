@@ -178,7 +178,7 @@ class BaseAgent(ABC):
     def propose_action(
         self,
         tool: str,
-        arguments: List[str],
+        arguments: Any,
         target: str,
         justification: str = ""
     ) -> Dict[str, Any]:

@@ -8,7 +8,7 @@ from typing import Optional, List, Dict, Any
 
 class ActionSpecCreate(BaseModel):
     tool: str
-    arguments: List[str]
+    arguments: Any
     target: str
     proposed_by: str
     justification: Optional[str] = None

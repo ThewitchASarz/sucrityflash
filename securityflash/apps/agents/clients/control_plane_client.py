@@ -58,7 +58,7 @@ class ControlPlaneClient:
         self,
         run_id: str,
         tool: str,
-        arguments: List[str],
+        arguments: Any,
         target: str,
         proposed_by: str,
         justification: str = ""

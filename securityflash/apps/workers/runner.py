@@ -56,6 +56,7 @@ from apps.workers.token_verify import verify_action_token
 from apps.workers.tool_allowlist import is_tool_allowed
 from apps.workers.tools.httpx_runner import run_httpx_safe
 from apps.workers.tools.nmap_runner import run_nmap_safe
+from apps.workers.tools.neurosploit_runner import run_neurosploit_safe
 from apps.workers.evidence_writer import write_evidence
 
 # Configure logging
@@ -145,6 +146,11 @@ def execute_action(action: Dict[str, Any]):
                 target=action_json["target"],
                 timeout_sec=30
             )
+        elif tool == "neurosploit":
+            result = run_neurosploit_safe(
+                action_arguments=action_json["arguments"],
+                timeout_sec=30
+            )
         else:
             result = {
                 "status": "FAILED",
@@ -232,4 +238,3 @@ def worker_main():
 
 if __name__ == "__main__":
     worker_main()
-
