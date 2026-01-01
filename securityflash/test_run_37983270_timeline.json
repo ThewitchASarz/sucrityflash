@@ -1,0 +1,21 @@
+[
+    {
+        "timestamp": "2025-12-31T20:55:44.481093-05:00",
+        "event_type": "RUN_CREATED",
+        "actor": "system",
+        "details": {
+            "run_id": "37983270-2f40-4243-8da4-3e7ef04d29b6",
+            "status": "CREATED",
+            "scope_id": "8cc1d92d-ccc4-42c6-b26f-f8abc6c89fb7"
+        }
+    },
+    {
+        "timestamp": "2025-12-31T20:55:44.509514-05:00",
+        "event_type": "RUN_STARTED",
+        "actor": "system",
+        "details": {
+            "run_id": "37983270-2f40-4243-8da4-3e7ef04d29b6",
+            "started_at": "2026-01-01T01:55:44.504988-05:00"
+        }
+    }
+]
