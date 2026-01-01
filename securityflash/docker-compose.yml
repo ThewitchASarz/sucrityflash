@@ -62,6 +62,69 @@ services:
       echo 'MinIO bucket initialized';
       "
 
+  # API Service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securityflash-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://xbow:dev-password@postgres:5432/xbow
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: securityflash-evidence
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    command: sh -c "alembic upgrade head && uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  # Agent Daemon
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securityflash-agent
+    depends_on:
+      - api
+    environment:
+      DATABASE_URL: postgresql://xbow:dev-password@postgres:5432/xbow
+      REDIS_URL: redis://redis:6379/0
+      PORT: 8000
+    volumes:
+      - .:/app
+    command: python -m apps.agents.daemon
+
+  # Worker Service
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: securityflash-worker
+    depends_on:
+      - api
+    environment:
+      DATABASE_URL: postgresql://xbow:dev-password@postgres:5432/xbow
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: securityflash-evidence
+      PORT: 8000
+    volumes:
+      - .:/app
+    command: python -m apps.workers.worker_main
+
 volumes:
   postgres-data:
   minio-data:

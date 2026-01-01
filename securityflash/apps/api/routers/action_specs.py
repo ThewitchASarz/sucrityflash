@@ -164,3 +164,90 @@ def query_action_specs_global(
         query = query.join(Run).filter(Run.status == run_status)
 
     return query.all()
+
+
+# Action status update endpoint for workers
+from pydantic import BaseModel
+from typing import Optional
+import uuid
+
+class ActionStatusUpdate(BaseModel):
+    """Schema for action status update."""
+    status: str  # EXECUTING, EXECUTED, FAILED
+    reason: Optional[str] = None
+    evidence_id: Optional[uuid.UUID] = None
+    metadata: Optional[dict] = None
+
+
+@global_router.patch("/{action_id}/status")
+def update_action_status(
+    action_id: str,
+    update_data: ActionStatusUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Update action status (for workers).
+
+    Enforces state transitions:
+    PROPOSED -> APPROVED -> EXECUTING -> EXECUTED|FAILED
+
+    Emits timeline events for each transition.
+    """
+    action_spec = db.query(ActionSpec).filter(ActionSpec.id == action_id).first()
+    if not action_spec:
+        raise HTTPException(status_code=404, detail="ActionSpec not found")
+
+    # Validate state transition
+    current_status = action_spec.status
+    new_status = ActionStatus(update_data.status)
+
+    valid_transitions = {
+        ActionStatus.PROPOSED: [ActionStatus.APPROVED, ActionStatus.REJECTED],
+        ActionStatus.APPROVED: [ActionStatus.EXECUTING],
+        ActionStatus.EXECUTING: [ActionStatus.EXECUTED, ActionStatus.FAILED],
+        ActionStatus.PENDING_APPROVAL: [ActionStatus.APPROVED, ActionStatus.REJECTED]
+    }
+
+    if new_status not in valid_transitions.get(current_status, []):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid transition from {current_status.value} to {new_status.value}"
+        )
+
+    # Update action status
+    action_spec.status = new_status
+
+    # Store metadata if provided
+    if update_data.metadata:
+        if not action_spec.policy_check_result:
+            action_spec.policy_check_result = {}
+        action_spec.policy_check_result.update({"execution_metadata": update_data.metadata})
+
+    db.commit()
+    db.refresh(action_spec)
+
+    # Emit timeline event
+    event_types = {
+        ActionStatus.EXECUTING: "EXECUTION_STARTED",
+        ActionStatus.EXECUTED: "EXECUTION_COMPLETED",
+        ActionStatus.FAILED: "EXECUTION_FAILED"
+    }
+
+    event_type = event_types.get(new_status, "ACTION_STATUS_UPDATED")
+
+    audit_log(
+        db=db,
+        run_id=action_spec.run_id,
+        event_type=event_type,
+        actor="worker",
+        details={
+            "action_id": str(action_spec.id),
+            "tool": action_spec.action_json.get("tool"),
+            "target": action_spec.action_json.get("target"),
+            "status": new_status.value,
+            "reason": update_data.reason,
+            "evidence_id": str(update_data.evidence_id) if update_data.evidence_id else None
+        }
+    )
+
+    return {"success": True, "action_id": str(action_spec.id), "status": new_status.value}

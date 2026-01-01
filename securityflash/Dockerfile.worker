@@ -1,0 +1,42 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies and security tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    nmap \
+    dnsutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
+RUN pip install --no-cache-dir poetry
+
+# Copy dependency files
+COPY pyproject.toml poetry.lock* ./
+
+# Install Python dependencies (no dev dependencies, no root project)
+RUN poetry config virtualenvs.create false && \
+    poetry install --without dev --no-root --no-interaction --no-ansi
+
+# Install httpx for HTTP probing (Python library, no CLI dependency)
+RUN pip install --no-cache-dir httpx
+
+# Copy application code
+COPY . .
+
+# Verify tool installations
+RUN echo "=== Installed Tools ===" && \
+    nmap --version || echo "nmap: not installed" && \
+    python -c "import httpx; print(f'httpx: {httpx.__version__}')" || echo "httpx: not installed"
+
+# Note: subfinder, dnsx, katana are OPTIONAL
+# If not installed, runners will gracefully fail with clear error messages
+# To install ProjectDiscovery tools (optional):
+# RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+# RUN go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
+# RUN go install -v github.com/projectdiscovery/katana/cmd/katana@latest
+
+# Run worker
+CMD ["python", "-m", "apps.workers.worker_main"]

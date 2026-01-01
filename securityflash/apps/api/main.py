@@ -42,7 +42,7 @@ Local dev: python -m uvicorn apps.api.main:app --reload
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apps.api.core.logging import logger
-from apps.api.routers import projects, scopes, runs, action_specs, approvals, evidence
+from apps.api.routers import projects, scopes, runs, action_specs, approvals, evidence, tools
 
 # Create FastAPI app
 app = FastAPI(
@@ -68,6 +68,7 @@ app.include_router(evidence.router)  # Evidence before action_specs (more specif
 app.include_router(approvals.router)
 app.include_router(action_specs.router, prefix="/api/v1/runs/{run_id}/action-specs")
 app.include_router(action_specs.global_router)  # Global query endpoint for workers
+app.include_router(tools.router, prefix="/api/v1")
 
 
 @app.get("/health")

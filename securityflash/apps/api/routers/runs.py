@@ -243,23 +243,79 @@ def get_run_executions(run_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/runs/{run_id}/report/generate")
-def generate_run_report(run_id: str, db: Session = Depends(get_db)):
+def generate_run_report(run_id: str, format: str = "html", db: Session = Depends(get_db)):
     """
     Generate report for a run.
 
     Creates a summary report with all findings, evidence, and audit trail.
+    Stores report as Evidence with type=REPORT.
+
+    Args:
+        run_id: Run ID
+        format: Report format (html or markdown)
     """
+    from apps.api.services.report_service import ReportGenerator
+    from apps.api.models.evidence import Evidence
+
     run = db.query(Run).filter(Run.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    # TODO: Implement actual report generation logic
-    # For now, return a placeholder
-    return {
-        "run_id": str(run.id),
-        "status": "generating",
-        "message": "Report generation started. Poll GET /runs/{run_id}/report for status."
-    }
+    # Generate report
+    try:
+        if format == "markdown":
+            report_content = ReportGenerator.generate_markdown_report(run_id, db)
+            mime_type = "text/markdown"
+            filename = f"report_{run_id[:8]}.md"
+        else:
+            report_content = ReportGenerator.generate_html_report(run_id, db)
+            mime_type = "text/html"
+            filename = f"report_{run_id[:8]}.html"
+
+        # Store report as Evidence
+        evidence = Evidence(
+            run_id=run.id,
+            evidence_type="REPORT",
+            metadata={
+                "format": format,
+                "filename": filename,
+                "mime_type": mime_type,
+                "content": report_content,
+                "generated_at": datetime.utcnow().isoformat(),
+                "size_bytes": len(report_content.encode('utf-8'))
+            },
+            collected_by="report_service",
+            source_url=None
+        )
+
+        db.add(evidence)
+        db.commit()
+        db.refresh(evidence)
+
+        # Audit log
+        audit_log(
+            db=db,
+            run_id=run.id,
+            event_type="REPORT_GENERATED",
+            actor="report_service",
+            details={
+                "evidence_id": str(evidence.id),
+                "format": format,
+                "size_bytes": len(report_content.encode('utf-8'))
+            }
+        )
+
+        return {
+            "run_id": str(run.id),
+            "status": "completed",
+            "evidence_id": str(evidence.id),
+            "format": format,
+            "filename": filename,
+            "download_url": f"/api/v1/projects/{run.project_id}/runs/{run_id}/evidence/{evidence.id}/download"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
 
 
 @router.get("/runs/{run_id}/report")
@@ -267,16 +323,30 @@ def get_run_report(run_id: str, db: Session = Depends(get_db)):
     """
     Get generated report for a run.
 
-    Returns report metadata and download link if available.
+    Returns most recent report metadata or 404 if no report generated yet.
     """
+    from apps.api.models.evidence import Evidence
+
     run = db.query(Run).filter(Run.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    # TODO: Implement actual report retrieval logic
-    # For now, return a placeholder
+    # Find most recent report evidence
+    report_evidence = db.query(Evidence).filter(
+        Evidence.run_id == run_id,
+        Evidence.evidence_type == "REPORT"
+    ).order_by(Evidence.collected_at.desc()).first()
+
+    if not report_evidence:
+        raise HTTPException(status_code=404, detail="No report generated yet. Call POST /runs/{run_id}/report/generate first.")
+
     return {
         "run_id": str(run.id),
-        "status": "not_implemented",
-        "message": "Report generation not yet implemented"
+        "status": "available",
+        "evidence_id": str(report_evidence.id),
+        "format": report_evidence.metadata.get("format", "html"),
+        "filename": report_evidence.metadata.get("filename"),
+        "generated_at": report_evidence.collected_at.isoformat(),
+        "size_bytes": report_evidence.metadata.get("size_bytes"),
+        "download_url": f"/api/v1/projects/{run.project_id}/runs/{run_id}/evidence/{report_evidence.id}/download"
     }

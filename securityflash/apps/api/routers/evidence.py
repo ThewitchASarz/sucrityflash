@@ -80,8 +80,11 @@ def download_evidence(run_id: str, evidence_id: str, db: Session = Depends(get_d
     """
     Get presigned download URL for evidence artifact.
 
-    Returns a temporary URL that can be used to download the artifact from MinIO.
+    For REPORT type evidence, returns content directly.
+    For other evidence, returns presigned MinIO URL.
     """
+    from fastapi.responses import Response
+
     evidence = EvidenceService.get(db=db, evidence_id=evidence_id)
 
     if not evidence:
@@ -90,7 +93,24 @@ def download_evidence(run_id: str, evidence_id: str, db: Session = Depends(get_d
     if str(evidence.run_id) != run_id:
         raise HTTPException(status_code=404, detail="Evidence not found for this run")
 
-    # Generate presigned URL (valid for 1 hour)
+    # Special handling for REPORT type - content stored in metadata
+    if evidence.evidence_type == "REPORT":
+        content = evidence.metadata.get("content")
+        mime_type = evidence.metadata.get("mime_type", "text/html")
+        filename = evidence.metadata.get("filename", f"report_{evidence_id[:8]}.html")
+
+        if not content:
+            raise HTTPException(status_code=404, detail="Report content not found")
+
+        return Response(
+            content=content.encode('utf-8'),
+            media_type=mime_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+
+    # For other evidence types, generate presigned URL from MinIO
     from apps.api.services.evidence_service import get_download_url
     download_url = get_download_url(evidence.artifact_uri)
 

@@ -15,7 +15,14 @@ router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
 @router.post("", response_model=ProjectResponse, status_code=201)
 def create_project(project_data: ProjectCreate, db: Session = Depends(get_db)):
-    """Create a new penetration testing project."""
+    """
+    Create a new penetration testing project.
+
+    If primary_target_url is provided, automatically creates a default scope
+    with that target pre-filled.
+    """
+    from apps.api.models.scope import Scope
+
     project = Project(
         name=project_data.name,
         customer_id=project_data.customer_id,
@@ -38,6 +45,41 @@ def create_project(project_data: ProjectCreate, db: Session = Depends(get_db)):
         actor=project_data.created_by,
         details={"project_id": str(project.id), "name": project.name}
     )
+
+    # Auto-create default scope if primary_target_url provided
+    if project_data.primary_target_url:
+        default_scope = Scope(
+            project_id=project.id,
+            name="Default Scope",
+            scope_json={
+                "targets": [
+                    {
+                        "value": project_data.primary_target_url,
+                        "criticality": "HIGH"
+                    }
+                ],
+                "excluded_targets": []
+            },
+            created_by=project_data.created_by
+        )
+
+        db.add(default_scope)
+        db.commit()
+        db.refresh(default_scope)
+
+        # Audit log for scope creation
+        audit_log(
+            db=db,
+            run_id=None,
+            event_type="SCOPE_CREATED",
+            actor=project_data.created_by,
+            details={
+                "scope_id": str(default_scope.id),
+                "project_id": str(project.id),
+                "name": "Default Scope (auto-created)",
+                "targets_count": 1
+            }
+        )
 
     return project
 
