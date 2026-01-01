@@ -25,6 +25,7 @@ from apps.api.db.session import SessionLocal
 from apps.api.models.action_spec import ActionSpec, ActionStatus
 from apps.api.models.run import Run, RunStatus
 from apps.api.models.evidence import Evidence
+from apps.api.models.execution import Execution, ExecutionStatus
 from apps.api.services.audit_service import audit_log
 from apps.workers.tool_registry import TOOL_REGISTRY
 from apps.workers.runners.runner_factory import RunnerFactory
@@ -159,9 +160,32 @@ class Worker:
             )
             return
 
+        # PHASE 2: Create Execution record BEFORE running tool
+        run = db.query(Run).filter(Run.id == action_spec.run_id).first()
+        tool_spec = TOOL_REGISTRY.get(tool)
+
+        execution = Execution(
+            run_id=action_spec.run_id,
+            project_id=run.project_id,
+            scope_id=run.scope_id,
+            action_spec_id=action_spec.id,
+            tool_name=tool,
+            tool_version=tool_spec.version if tool_spec else None,
+            status=ExecutionStatus.STARTED,
+            started_at=datetime.utcnow(),
+            metadata_json={
+                "target": target,
+                "arguments": action_spec.action_json.get("arguments", {}),
+                "justification": action_spec.action_json.get("justification", "")
+            }
+        )
+
+        db.add(execution)
+
         # Update status to EXECUTING
         action_spec.status = ActionStatus.EXECUTING
         db.commit()
+        db.refresh(execution)
 
         # Emit timeline event
         audit_log(
@@ -171,6 +195,7 @@ class Worker:
             actor="worker",
             details={
                 "action_id": action_id,
+                "execution_id": str(execution.id),
                 "tool": tool,
                 "target": target
             }
@@ -197,8 +222,26 @@ class Worker:
             # Store evidence
             evidence = self._store_evidence(db, action_spec, result)
 
+            # PHASE 2: Update Execution record
+            execution.finished_at = datetime.utcnow()
+            execution.exit_code = result.exit_code
+
             # Update action status
             if result.success:
+                execution.status = ExecutionStatus.FINISHED
+                execution.stdout_evidence_id = evidence.id if evidence else None
+                execution.summary_json = {
+                    "success": True,
+                    "artifacts_count": len(result.artifacts),
+                    "execution_time_sec": execution_time
+                }
+                execution.metadata_json = {
+                    **execution.metadata_json,
+                    "runtime_sec": execution_time,
+                    "caps_applied": True,
+                    "output_size_kb": len(result.stdout.encode('utf-8')) / 1024
+                }
+
                 action_spec.status = ActionStatus.EXECUTED
 
                 # Update via API to trigger timeline event
@@ -207,12 +250,20 @@ class Worker:
                     status="EXECUTED",
                     evidence_id=str(evidence.id) if evidence else None,
                     metadata={
+                        "execution_id": str(execution.id),
                         "execution_time_sec": execution_time,
                         "exit_code": result.exit_code,
                         "artifacts_count": len(result.artifacts)
                     }
                 )
             else:
+                execution.status = ExecutionStatus.FAILED
+                execution.summary_json = {
+                    "success": False,
+                    "error_message": result.error_message,
+                    "execution_time_sec": execution_time
+                }
+
                 action_spec.status = ActionStatus.FAILED
 
                 # Update via API to trigger timeline event
@@ -221,6 +272,7 @@ class Worker:
                     status="FAILED",
                     reason=result.error_message or result.stderr,
                     metadata={
+                        "execution_id": str(execution.id),
                         "execution_time_sec": execution_time,
                         "exit_code": result.exit_code
                     }
@@ -229,9 +281,28 @@ class Worker:
             db.commit()
 
             logger.info(f"Action {action_id[:8]}... completed: {action_spec.status.value}")
+            logger.info(f"Execution {str(execution.id)[:8]}... status: {execution.status.value}")
+
+            # PHASE 2: Run auto-findings analyzer
+            if result.success:
+                try:
+                    from apps.analysis.postprocessors import PostExecutionAnalyzer
+                    auto_findings = PostExecutionAnalyzer.analyze_execution(db, execution)
+                    if auto_findings:
+                        logger.info(f"Created {len(auto_findings)} auto-findings from execution {str(execution.id)[:8]}")
+                except Exception as analyzer_error:
+                    logger.error(f"Auto-analyzer failed for execution {str(execution.id)}: {analyzer_error}", exc_info=True)
 
         except Exception as e:
             logger.error(f"Execution failed for action {action_id}: {e}", exc_info=True)
+
+            # PHASE 2: Mark execution as FAILED
+            execution.status = ExecutionStatus.FAILED
+            execution.finished_at = datetime.utcnow()
+            execution.summary_json = {
+                "success": False,
+                "error_message": str(e)
+            }
 
             # Mark as FAILED
             action_spec.status = ActionStatus.FAILED
@@ -241,7 +312,8 @@ class Worker:
             self._update_action_status(
                 action_id=action_id,
                 status="FAILED",
-                reason=str(e)
+                reason=str(e),
+                metadata={"execution_id": str(execution.id)}
             )
 
     def _store_evidence(

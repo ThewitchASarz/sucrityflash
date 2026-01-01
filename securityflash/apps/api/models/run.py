@@ -5,6 +5,7 @@ MUST-FIX A: status field with CREATED, RUNNING, COMPLETED, FAILED states.
 from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 import uuid
 import enum
 from apps.api.db.base import Base
@@ -38,3 +39,11 @@ class Run(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     created_by = Column(String(255), nullable=False)
+
+    # PHASE 2: Agent daemon tracking
+    agent_started_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    executions = relationship("Execution", back_populates="run", cascade="all, delete-orphan")
+    findings = relationship("Finding", back_populates="run", cascade="all, delete-orphan")
+    manual_tasks = relationship("ManualValidationTask", back_populates="run", cascade="all, delete-orphan")

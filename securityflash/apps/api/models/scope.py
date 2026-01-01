@@ -1,7 +1,7 @@
 """
 Scope model - defines immutable boundaries for a project.
 """
-from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Text, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 import uuid
@@ -27,5 +27,14 @@ class Scope(Base):
     version = Column(Integer, nullable=False, default=1)
     status = Column(String(50), nullable=False, default="draft")  # draft, locked
 
+    # PHASE 3: Safety controls (rate limits / caps)
+    max_requests_per_minute = Column(Integer, nullable=False, default=60)
+    max_hosts = Column(Integer, nullable=False, default=50)
+    max_scan_minutes = Column(Integer, nullable=False, default=10)
+    allow_port_scans = Column(Boolean, nullable=False, default=True)
+    allow_crawling = Column(Boolean, nullable=False, default=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_by = Column(String(255), nullable=True)
+    name = Column(String(255), nullable=True)
