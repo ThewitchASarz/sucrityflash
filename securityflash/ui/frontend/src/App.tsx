@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useEffect, useMemo, useState } from 'react';
 import './App.css';
 
 const API_BASE = 'http://localhost:3001';
@@ -124,50 +123,9 @@ function App() {
   const [auditStatus, setAuditStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
 
   useEffect(() => {
-    checkHealth();
-    loadProjects();
-  }, []);
-
-  const checkHealth = async () => {
-    try {
-      const response = await axios.get(`${API_BASE}/health`);
-      setHealth(response.data);
-    } catch (err) {
-      setError('Backend is not responding');
-    }
-  };
-
-  const loadProjects = async () => {
-    try {
-      const response = await axios.get(`${API_BASE}/api/v1/projects`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setProjects(Array.isArray(response.data) ? response.data : []);
-    } catch (err: any) {
-      console.error('Error loading projects:', err);
-      setProjects([]);
-    }
-  };
-
-  const createProject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      await axios.post(
-        `${API_BASE}/api/v1/projects`,
-        newProject,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      await loadProjects();
-      setShowNewProjectForm(false);
-      setNewProject({ name: '', customer_id: '', description: '' });
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to create project');
-    } finally {
-      setLoading(false);
+    if (!window.location.hash) {
+      window.location.hash = '#/';
+      setHash('#/');
     }
   };
 
@@ -363,23 +321,12 @@ function App() {
       setFindings(Array.isArray(findingsResponse.data) ? findingsResponse.data : []);
       setCurrentPage(1);
 
-      // Load pending approvals (CRITICAL FOR MONITORING)
-      try {
-        const approvalsResponse = await axios.get(`${API_BASE}/api/v1/runs/${runId}/approvals/pending`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setPendingApprovals(Array.isArray(approvalsResponse.data) ? approvalsResponse.data : []);
-      } catch (err) {
-        console.error('Error loading pending approvals:', err);
-      }
+  const route = useMemo(() => parseRoute(hash), [hash]);
 
-      // Continue polling every 5 seconds if still running
-      if (response.data.status === 'RUNNING' || response.data.status === 'PENDING') {
-        setTimeout(() => pollRunStatus(runId), 5000);
-      }
-    } catch (err) {
-      console.error('Error polling run status:', err);
-    }
+  const navigate = (path: string) => {
+    const normalized = path.startsWith('#') ? path : `#${path}`;
+    window.location.hash = normalized;
+    setHash(normalized);
   };
 
   const generateReport = async (runId: string) => {
@@ -387,13 +334,11 @@ function App() {
     setError('');
     setReportStatus('queued');
 
-    try {
-      // V1 API returns a job_id for async report generation
-      const response = await axios.post(
-        `${API_BASE}/api/v1/reports`,
-        { run_id: runId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+const AppShell: React.FC = () => {
+  const { route, navigate } = useHashRoute();
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [token] = useState<string>('demo-token');
+  const { addToast } = useToast();
 
       if (response.data.job_id) {
         // Poll for report completion
@@ -416,8 +361,8 @@ function App() {
     }
   };
 
-  const pollReportJob = async (jobId: string): Promise<string | null> => {
-    for (let i = 0; i < 30; i++) {  // Poll for up to 5 minutes
+  useEffect(() => {
+    const fetchHealth = async () => {
       try {
         const response = await axios.get(`${API_BASE}/api/v1/jobs/${jobId}`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -1181,13 +1126,29 @@ function App() {
           </div>
         )}
 
-        {error && <div className="error">{error}</div>}
-
-        {currentView === 'projects' && renderProjects()}
-        {currentView === 'project-detail' && renderProjectDetail()}
-        {currentView === 'run-detail' && renderRunDetail()}
+        {route.name === 'projects' && <ProjectsView onSelectProject={handleSelectProject} />}
+        {route.name === 'project-detail' && (
+          <ProjectDetail
+            projectId={route.projectId}
+            onBack={() => navigate('/')}
+            onNavigateRun={(runId) => navigate(`/runs/${runId}`)}
+          />
+        )}
+        {route.name === 'run-detail' && (
+          <RunDetail runId={route.runId} onBack={() => navigate('/')} />
+        )}
       </header>
     </div>
+  );
+};
+
+function App() {
+  return (
+    <ErrorBoundary>
+      <ToastProvider>
+        <AppShell />
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }
 
