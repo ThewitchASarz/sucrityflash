@@ -3,6 +3,7 @@ import axios from 'axios';
 import './App.css';
 
 const API_BASE = 'http://localhost:3001';
+const FINDINGS_PAGE_SIZE = 10;
 
 interface HealthStatus {
   status: string;
@@ -105,6 +106,12 @@ function App() {
 
   // Findings
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [severityFilter, setSeverityFilter] = useState<string>('all');
+  const [toolFilter, setToolFilter] = useState<string>('all');
+  const [validationFilter, setValidationFilter] = useState<string>('all');
+  const [sortField, setSortField] = useState<'created_at' | 'generated_at' | 'severity'>('created_at');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // Run activity
   const [runStats, setRunStats] = useState<RunStats | null>(null);
@@ -113,6 +120,8 @@ function App() {
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [reportStatus, setReportStatus] = useState<'idle' | 'queued' | 'running' | 'completed' | 'error' | 'timeout'>('idle');
+  const [auditStatus, setAuditStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
 
   useEffect(() => {
     checkHealth();
@@ -352,6 +361,7 @@ function App() {
         headers: { Authorization: `Bearer ${token}` }
       });
       setFindings(Array.isArray(findingsResponse.data) ? findingsResponse.data : []);
+      setCurrentPage(1);
 
       // Load pending approvals (CRITICAL FOR MONITORING)
       try {
@@ -375,6 +385,7 @@ function App() {
   const generateReport = async (runId: string) => {
     setLoading(true);
     setError('');
+    setReportStatus('queued');
 
     try {
       // V1 API returns a job_id for async report generation
@@ -386,6 +397,7 @@ function App() {
 
       if (response.data.job_id) {
         // Poll for report completion
+        setReportStatus('running');
         const reportId = await pollReportJob(response.data.job_id);
         if (reportId) {
           // Download the completed report
@@ -394,9 +406,11 @@ function App() {
       } else if (response.data.report_id) {
         // Report generated immediately
         await downloadReport(response.data.report_id, runId);
+        setReportStatus('completed');
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to generate report');
+      setReportStatus('error');
     } finally {
       setLoading(false);
     }
@@ -410,9 +424,11 @@ function App() {
         });
 
         if (response.data.status === 'COMPLETED') {
+          setReportStatus('completed');
           return response.data.result.report_id;
         } else if (response.data.status === 'FAILED') {
           setError('Report generation failed');
+          setReportStatus('error');
           return null;
         }
 
@@ -420,10 +436,12 @@ function App() {
         await new Promise(resolve => setTimeout(resolve, 10000));
       } catch (err) {
         console.error('Error polling report job:', err);
+        setReportStatus('error');
         return null;
       }
     }
     setError('Report generation timed out');
+    setReportStatus('timeout');
     return null;
   };
 
@@ -446,12 +464,14 @@ function App() {
       link.remove();
     } catch (err) {
       setError('Failed to download report');
+      setReportStatus('error');
     }
   };
 
   const generateAuditBundle = async (runId: string) => {
     setLoading(true);
     setError('');
+    setAuditStatus('running');
 
     try {
       const response = await axios.post(
@@ -471,12 +491,55 @@ function App() {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      setAuditStatus('completed');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to generate audit bundle');
+      setAuditStatus('error');
     } finally {
       setLoading(false);
     }
   };
+
+  const downloadArtifact = async (artifactUri: string, evidenceId: string) => {
+    try {
+      const response = await axios.get(
+        artifactUri,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'blob'
+        }
+      );
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `artifact-${evidenceId}.bin`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      setError('Failed to download artifact');
+    }
+  };
+
+  const openArtifact = (artifactUri: string) => {
+    window.open(artifactUri, '_blank', 'noopener,noreferrer');
+  };
+
+  const getSeverity = (evidence: any) =>
+    (evidence.severity || evidence.evidence_metadata?.severity || 'info').toLowerCase();
+
+  const getToolUsed = (evidence: any) =>
+    evidence.evidence_metadata?.tool_used || evidence.tool || evidence.generated_by || 'unknown';
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [severityFilter, toolFilter, validationFilter, sortField, sortDirection]);
+
+  useEffect(() => {
+    setReportStatus('idle');
+    setAuditStatus('idle');
+  }, [selectedRun?.id]);
 
   const renderProjects = () => (
     <div className="main-content">
@@ -727,6 +790,52 @@ function App() {
   const renderRunDetail = () => {
     if (!selectedRun) return null;
 
+    const severityOrder: Record<string, number> = {
+      critical: 4,
+      high: 3,
+      medium: 2,
+      low: 1,
+      info: 0
+    };
+
+    const filteredFindings = findings.filter((item) => {
+      const severity = getSeverity(item);
+      const toolUsed = getToolUsed(item).toLowerCase();
+      const validationStatus = (item.validation_status || (item.validated ? 'validated' : 'unvalidated')).toLowerCase();
+
+      const matchesSeverity = severityFilter === 'all' || severity === severityFilter;
+      const matchesTool = toolFilter === 'all' || toolUsed === toolFilter;
+      const matchesValidation = validationFilter === 'all' || validationStatus === validationFilter;
+
+      return matchesSeverity && matchesTool && matchesValidation;
+    });
+
+    const sortedFindings = [...filteredFindings].sort((a, b) => {
+      if (sortField === 'severity') {
+        const severityA = severityOrder[getSeverity(a)] ?? 0;
+        const severityB = severityOrder[getSeverity(b)] ?? 0;
+        return sortDirection === 'asc'
+          ? severityA - severityB
+          : severityB - severityA;
+      }
+      const first = new Date(a[sortField]).getTime();
+      const second = new Date(b[sortField]).getTime();
+      return sortDirection === 'asc' ? first - second : second - first;
+    });
+
+    const totalPages = Math.max(1, Math.ceil(sortedFindings.length / FINDINGS_PAGE_SIZE));
+    const safePage = Math.min(currentPage, totalPages);
+    const startIndex = (safePage - 1) * FINDINGS_PAGE_SIZE;
+    const paginatedFindings = sortedFindings.slice(startIndex, startIndex + FINDINGS_PAGE_SIZE);
+
+    const availableTools = Array.from(
+      new Set(
+        findings
+          .map((item) => getToolUsed(item)?.toLowerCase())
+          .filter(Boolean)
+      )
+    );
+
     return (
       <div className="main-content">
         <button className="back-button" onClick={() => setCurrentView('project-detail')}>← Back to Project</button>
@@ -896,18 +1005,96 @@ function App() {
 
         <div className="section">
           <div className="section-header">
-            <h3>📊 Evidence Collected ({findings.length})</h3>
-            {selectedRun.status === 'COMPLETED' && findings.length > 0 && (
-              <div className="report-actions">
-                <button onClick={() => generateReport(selectedRun.id)} disabled={loading}>
-                  {loading ? 'Generating...' : '📄 Generate Report'}
+            <div>
+              <h3>📊 Evidence Collected ({filteredFindings.length}/{findings.length})</h3>
+              <p className="section-subtitle">Paginate, filter, and sort by severity, tool, and timestamps.</p>
+            </div>
+            <div className="report-actions">
+              <button
+                onClick={() => generateReport(selectedRun.id)}
+                disabled={loading || selectedRun.status !== 'COMPLETED' || reportStatus === 'running'}
+                title={selectedRun.status !== 'COMPLETED' ? 'Available after run completion' : 'Generate pentest report'}
+              >
+                {reportStatus === 'running' ? '⏳ Generating...' : '📄 Generate Report'}
+              </button>
+              <button
+                onClick={() => generateAuditBundle(selectedRun.id)}
+                disabled={loading || selectedRun.status !== 'COMPLETED' || auditStatus === 'running'}
+                title={selectedRun.status !== 'COMPLETED' ? 'Available after run completion' : 'Download audit bundle'}
+              >
+                {auditStatus === 'running' ? '⏳ Preparing...' : '📦 Download Audit Bundle'}
+              </button>
+              <div className="job-chips">
+                <span className={`chip job-chip status-${reportStatus}`}>Report: {reportStatus}</span>
+                <span className={`chip job-chip status-${auditStatus}`}>Audit bundle: {auditStatus}</span>
+              </div>
+            </div>
+          </div>
+
+          {findings.length > 0 && (
+            <div className="filters-row">
+              <div className="filter-group">
+                <span className="chip-label">Severity</span>
+                {['all', 'critical', 'high', 'medium', 'low', 'info'].map((sev) => (
+                  <button
+                    key={sev}
+                    className={`chip ${severityFilter === sev ? 'chip-active' : ''}`}
+                    onClick={() => setSeverityFilter(sev)}
+                  >
+                    {sev === 'all' ? 'All' : sev.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="filter-group">
+                <span className="chip-label">Validation</span>
+                {['all', 'validated', 'unvalidated', 'rejected'].map((status) => (
+                  <button
+                    key={status}
+                    className={`chip ${validationFilter === status ? 'chip-active' : ''}`}
+                    onClick={() => setValidationFilter(status)}
+                  >
+                    {status === 'all' ? 'All' : status.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="filter-group">
+                <span className="chip-label">Tool</span>
+                <button
+                  className={`chip ${toolFilter === 'all' ? 'chip-active' : ''}`}
+                  onClick={() => setToolFilter('all')}
+                >
+                  All tools
                 </button>
-                <button onClick={() => generateAuditBundle(selectedRun.id)} disabled={loading}>
-                  {loading ? 'Generating...' : '📦 Download Audit Bundle'}
+                {availableTools.map((tool) => (
+                  <button
+                    key={tool}
+                    className={`chip ${toolFilter === tool ? 'chip-active' : ''}`}
+                    onClick={() => setToolFilter(tool)}
+                  >
+                    {tool}
+                  </button>
+                ))}
+              </div>
+              <div className="filter-group">
+                <span className="chip-label">Sort</span>
+                {(['created_at', 'generated_at', 'severity'] as const).map((field) => (
+                  <button
+                    key={field}
+                    className={`chip ${sortField === field ? 'chip-active' : ''}`}
+                    onClick={() => setSortField(field)}
+                  >
+                    {field === 'severity' ? 'Severity' : field === 'created_at' ? 'Created' : 'Generated'}
+                  </button>
+                ))}
+                <button
+                  className="chip"
+                  onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+                >
+                  {sortDirection === 'asc' ? '⬆️ Asc' : '⬇️ Desc'}
                 </button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {findings.length === 0 ? (
             <p className="empty-state">
@@ -915,31 +1102,66 @@ function App() {
             </p>
           ) : (
             <div className="findings-list">
-              {findings.slice(0, 20).map((evidence: any) => (
-                <div key={evidence.id} className="finding-card" style={{backgroundColor: '#f8f9fa', border: '1px solid #dee2e6'}}>
-                  <div className="finding-header">
-                    <h4>{evidence.evidence_type.replace(/_/g, ' ').toUpperCase()}</h4>
-                    <span className="severity-badge" style={{backgroundColor: '#6c757d'}}>
-                      {evidence.validation_status}
-                    </span>
+              {paginatedFindings.map((evidence: any) => {
+                const severity = getSeverity(evidence);
+                const toolUsed = getToolUsed(evidence);
+                const validationStatus = evidence.validation_status || (evidence.validated ? 'validated' : 'unvalidated');
+
+                return (
+                  <div key={evidence.id} className={`finding-card severity-${severity}`}>
+                    <div className="finding-header">
+                      <div>
+                        <h4>{evidence.evidence_type.replace(/_/g, ' ').toUpperCase()}</h4>
+                        <div className="chip-stack">
+                          <span className={`chip severity-chip severity-${severity}`}>{severity.toUpperCase()}</span>
+                          <span className={`chip validation-chip status-${validationStatus.toLowerCase()}`}>
+                            {validationStatus.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="chip tool-chip">🛠️ {toolUsed}</div>
+                    </div>
+                    <p><strong>Generated by:</strong> {evidence.generated_by}</p>
+                    {evidence.evidence_metadata && evidence.evidence_metadata.returncode !== undefined && (
+                      <p><strong>Return code:</strong> {evidence.evidence_metadata.returncode}</p>
+                    )}
+                    <div className="artifact-row">
+                      <div>
+                        <p><strong>Artifact:</strong> {evidence.artifact_uri}</p>
+                        <p className="hash-text">
+                          <strong>Hash:</strong> {evidence.artifact_hash.substring(0, 16)}...
+                        </p>
+                      </div>
+                      <div className="artifact-actions">
+                        <button className="icon-button" onClick={() => openArtifact(evidence.artifact_uri)}>👁️ View</button>
+                        <button className="icon-button" onClick={() => downloadArtifact(evidence.artifact_uri, evidence.id)}>⬇️ Download</button>
+                      </div>
+                    </div>
+                    <div className="finding-meta">
+                      <span>Created: {new Date(evidence.created_at).toLocaleString()}</span>
+                      <span>Generated: {new Date(evidence.generated_at).toLocaleString()}</span>
+                    </div>
                   </div>
-                  <p><strong>Generated by:</strong> {evidence.generated_by}</p>
-                  {evidence.evidence_metadata && evidence.evidence_metadata.tool_used && (
-                    <p><strong>Tool:</strong> {evidence.evidence_metadata.tool_used}</p>
-                  )}
-                  {evidence.evidence_metadata && evidence.evidence_metadata.returncode !== undefined && (
-                    <p><strong>Return code:</strong> {evidence.evidence_metadata.returncode}</p>
-                  )}
-                  <p><strong>Artifact:</strong> {evidence.artifact_uri}</p>
-                  <p style={{fontSize: '12px', color: '#666'}}>
-                    <strong>Hash:</strong> {evidence.artifact_hash.substring(0, 16)}...
-                  </p>
-                  <div className="finding-meta">
-                    <span>Created: {new Date(evidence.created_at).toLocaleDateString()}</span>
-                    <span>Generated: {new Date(evidence.generated_at).toLocaleString()}</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
+            </div>
+          )}
+
+          {findings.length > 0 && (
+            <div className="pagination">
+              <button
+                onClick={() => setCurrentPage(Math.max(1, safePage - 1))}
+                disabled={safePage === 1}
+              >
+                ← Previous
+              </button>
+              <span className="pagination-status">Page {safePage} of {totalPages}</span>
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages, safePage + 1))}
+                disabled={safePage === totalPages}
+              >
+                Next →
+              </button>
             </div>
           )}
         </div>
