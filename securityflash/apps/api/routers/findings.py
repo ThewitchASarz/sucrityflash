@@ -7,7 +7,7 @@ from typing import List
 from datetime import datetime
 
 from apps.api.db.session import get_db
-from apps.api.models.finding import Finding, FindingStatus
+from apps.api.models.finding import Finding, FindingStatus, FindingSeverity
 from apps.api.models.run import Run
 from apps.api.schemas.finding import FindingCreate, FindingUpdate, FindingResponse, FindingReview
 from apps.api.services.audit_service import audit_log
