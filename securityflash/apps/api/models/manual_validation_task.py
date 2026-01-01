@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import enum
 
-from apps.api.db.base_class import Base
+from apps.api.db.base import Base
 
 
 class ManualValidationTaskStatus(str, enum.Enum):
