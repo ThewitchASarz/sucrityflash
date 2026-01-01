@@ -1,0 +1,101 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: securityflash-api-metrics
+  labels:
+    app: securityflash-api
+spec:
+  selector:
+    app: securityflash-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: securityflash-api-servicemonitor
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: securityflash-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+    - port: http
+      path: /health
+      interval: 60s
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: securityflash-worker-metrics
+  labels:
+    app: securityflash-worker
+spec:
+  selector:
+    app: securityflash-worker
+  ports:
+    - name: metrics
+      port: 9101
+      targetPort: 9101
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: securityflash-worker-servicemonitor
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: securityflash-worker
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+    - port: metrics
+      path: /health
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: securityflash-alerts
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: securityflash-approvals
+      rules:
+        - alert: ApprovalLatencyHigh
+          expr: histogram_quantile(0.95, rate(approval_latency_seconds_bucket[15m])) > 300
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Approval latency above SLO (p95 > 5m)"
+            description: "Review queue is backing up. Investigate reviewer availability or API issues."
+    - name: securityflash-worker
+      rules:
+        - alert: WorkerErrorsSpike
+          expr: increase(worker_errors_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Worker errors detected"
+            description: "Worker {{ $labels.worker }} is reporting execution failures in the last 5m."
+        - alert: RedisStreamsLagHigh
+          expr: max_over_time(redis_streams_lag[5m]) > 50
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Redis Streams backlog growing"
+            description: "Pending messages across agent/control-plane streams exceeded 50 for 10m."

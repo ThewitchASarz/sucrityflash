@@ -125,6 +125,39 @@ services:
       - .:/app
     command: python -m apps.workers.worker_main
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    container_name: securityflash-otel
+    profiles: ["observability"]
+    volumes:
+      - ./infra/monitoring/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      STACKDRIVER_PROJECT_ID: ${STACKDRIVER_PROJECT_ID:-}
+    depends_on:
+      - api
+      - worker
+
+  fluent-bit:
+    image: fluent/fluent-bit:2.2
+    container_name: securityflash-fluent-bit
+    profiles: ["observability"]
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./infra/monitoring/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+    environment:
+      CLOUDWATCH_LOG_REGION: ${AWS_REGION:-us-east-1}
+      CLOUDWATCH_LOG_GROUP: ${CLOUDWATCH_LOG_GROUP:-securityflash}
+      CLOUDWATCH_LOG_STREAM_PREFIX: ${CLOUDWATCH_LOG_STREAM_PREFIX:-local}
+      STACKDRIVER_LOCATION: ${STACKDRIVER_LOCATION:-us-central1}
+      STACKDRIVER_LOG_ID: ${STACKDRIVER_LOG_ID:-securityflash}
+    depends_on:
+      - api
+      - worker
+
 volumes:
   postgres-data:
   minio-data:
