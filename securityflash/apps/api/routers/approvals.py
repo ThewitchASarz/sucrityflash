@@ -35,12 +35,18 @@ def get_pending_approvals(run_id: str, db: Session = Depends(get_db)):
 
     result = []
     for action in pending_actions:
+        # Handle arguments field - convert dict to list if needed
+        args = action.action_json.get("arguments", [])
+        if isinstance(args, dict):
+            # Convert dict to list of "key=value" strings
+            args = [f"{k}={v}" for k, v in args.items()] if args else []
+
         result.append(PendingApproval(
             action_id=action.id,
             run_id=action.run_id,
             tool=action.action_json["tool"],
             target=action.action_json["target"],
-            arguments=action.action_json["arguments"],
+            arguments=args,
             risk_score=action.risk_score,
             approval_tier=action.approval_tier,
             proposed_by=action.proposed_by,
