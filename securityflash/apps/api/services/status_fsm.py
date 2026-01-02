@@ -27,9 +27,12 @@ class StatusTransitions:
     }
 
     RUN_ALLOWED: Dict[RunStatus, List[RunStatus]] = {
-        RunStatus.CREATED: [RunStatus.RUNNING],
-        RunStatus.RUNNING: [RunStatus.COMPLETED, RunStatus.FAILED],
-        # COMPLETED, FAILED are terminal states (no transitions)
+        RunStatus.CREATED: [RunStatus.RUNNING, RunStatus.ABORTED],
+        RunStatus.RUNNING: [RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.ABORTED],
+        RunStatus.FAILED: [],
+        RunStatus.COMPLETED: [],
+        RunStatus.ABORTED: [],
+        # COMPLETED, FAILED, ABORTED are terminal states (no transitions)
     }
 
 

@@ -70,6 +70,7 @@ logger = logging.getLogger("worker")
 # Configuration
 API_BASE_URL = settings.CONTROL_PLANE_API_URL or f"http://localhost:{settings.PORT}/api/v1"
 POLL_INTERVAL_SEC = settings.WORKER_POLL_INTERVAL_SEC
+RECENT_EXECUTIONS = {}
 
 
 def fetch_approved_actions() -> List[Dict[str, Any]]:
@@ -98,6 +99,33 @@ def fetch_approved_actions() -> List[Dict[str, Any]]:
         return []
 
 
+def fetch_run(run_id: str) -> Dict[str, Any]:
+    """Fetch run metadata for kill switch and monitored mode enforcement."""
+    try:
+        response = requests.get(f"{API_BASE_URL}/runs/{run_id}")
+        if response.status_code == 200:
+            return response.json()
+        logger.error(f"Failed to fetch run {run_id}: {response.status_code}")
+        return {}
+    except Exception as exc:
+        logger.error(f"Error fetching run {run_id}: {exc}")
+        return {}
+
+
+def is_rate_limited(run_id: str, rpm_limit: int) -> bool:
+    """Simple in-memory RPM limiter for monitored mode."""
+    now = time.time()
+    window_start = now - 60
+    history = RECENT_EXECUTIONS.get(run_id, [])
+    history = [ts for ts in history if ts >= window_start]
+    if len(history) >= rpm_limit:
+        RECENT_EXECUTIONS[run_id] = history
+        return True
+    history.append(now)
+    RECENT_EXECUTIONS[run_id] = history
+    return False
+
+
 def execute_action(action: Dict[str, Any]):
     """
     Execute a single approved action.
@@ -115,6 +143,21 @@ def execute_action(action: Dict[str, Any]):
     approval_token = action.get("approval_token")
 
     logger.info(f"Executing action {action_id} (tool={action_json['tool']}, target={action_json['target']})")
+
+    run_data = fetch_run(run_id)
+    if not run_data:
+        logger.error(f"Unable to load run {run_id}; skipping action")
+        return
+
+    if run_data.get("kill_switch_activated_at") or run_data.get("status") == "ABORTED":
+        logger.warning(f"Kill switch active for run {run_id}; refusing to execute {action_id}")
+        update_action_status(action_id, "FAILED", "Kill switch active")
+        return
+
+    if run_data.get("monitored_mode_enabled"):
+        if is_rate_limited(run_id, run_data.get("monitored_rate_limit_rpm", 60)):
+            logger.warning(f"Run {run_id} is rate limited; delaying action {action_id}")
+            return
 
     # 1. Verify token (CRITICAL)
     is_valid, error_msg = verify_action_token(action_json, approval_token)

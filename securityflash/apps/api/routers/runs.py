@@ -11,7 +11,14 @@ from apps.api.db.session import get_db
 from apps.api.models.run import Run, RunStatus
 from apps.api.models.scope import Scope
 from apps.api.models.project import Project
-from apps.api.schemas.run import RunCreate, RunStart, RunResponse
+from apps.api.schemas.run import (
+    RunCreate,
+    RunStart,
+    RunResponse,
+    MonitoredModeEnableRequest,
+    MonitoredModeDisableRequest,
+    KillSwitchActivateRequest,
+)
 from apps.api.services.audit_service import audit_log
 from apps.api.services.status_fsm import transition_run_status
 from apps.api.services.scope_lock_service import ScopeLockService
@@ -282,6 +289,89 @@ def get_run_executions(run_id: str, db: Session = Depends(get_db)):
         })
 
     return result
+
+
+@router.post("/runs/{run_id}/monitored-mode/enable", response_model=RunResponse)
+def enable_monitored_mode(run_id: str, payload: MonitoredModeEnableRequest, db: Session = Depends(get_db)):
+    """Enable monitored mode with explicit approvals."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    run.monitored_mode_enabled = True
+    run.monitored_rate_limit_rpm = payload.monitored_rate_limit_rpm
+    run.monitored_max_concurrency = payload.monitored_max_concurrency
+    run.monitored_started_by = payload.started_by
+
+    db.commit()
+    db.refresh(run)
+
+    audit_log(
+        db=db,
+        run_id=run.id,
+        event_type="MONITORED_MODE_ENABLED",
+        actor=payload.started_by,
+        details={
+            "reviewer_approval": payload.reviewer_approval,
+            "engineer_approval": payload.engineer_approval,
+            "rate_limit_rpm": payload.monitored_rate_limit_rpm,
+            "max_concurrency": payload.monitored_max_concurrency
+        }
+    )
+    return run
+
+
+@router.post("/runs/{run_id}/monitored-mode/disable", response_model=RunResponse)
+def disable_monitored_mode(run_id: str, payload: MonitoredModeDisableRequest, db: Session = Depends(get_db)):
+    """Disable monitored mode."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    run.monitored_mode_enabled = False
+    db.commit()
+    db.refresh(run)
+
+    audit_log(
+        db=db,
+        run_id=run.id,
+        event_type="MONITORED_MODE_DISABLED",
+        actor=payload.actor,
+        details={"run_id": str(run.id)}
+    )
+    return run
+
+
+@router.post("/runs/{run_id}/kill-switch/activate", response_model=RunResponse)
+def activate_kill_switch(run_id: str, payload: KillSwitchActivateRequest, db: Session = Depends(get_db)):
+    """Arm the kill switch and abort the run."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.kill_switch_activated_at:
+        # Already activated; return current state
+        return run
+
+    run.kill_switch_activated_at = datetime.utcnow()
+    run.monitored_mode_enabled = False
+    run.kill_switch_armed = False
+    transition_run_status(run, RunStatus.ABORTED, payload.actor, db)
+    run.completed_at = run.kill_switch_activated_at
+    db.commit()
+    db.refresh(run)
+
+    audit_log(
+        db=db,
+        run_id=run.id,
+        event_type="KILL_SWITCH_ACTIVATED",
+        actor=payload.actor,
+        details={
+            "reason": payload.reason or "kill switch activated",
+            "activated_at": run.kill_switch_activated_at.isoformat()
+        }
+    )
+    return run
 
 
 @router.post("/runs/{run_id}/report/generate")

@@ -148,3 +148,14 @@ class ControlPlaneClient:
         )
         response.raise_for_status()
         return response.json()
+
+    # Validation pack helpers
+    def create_validation_pack(self, run_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        response = self.session.post(f"{self.base_url}/runs/{run_id}/validation-packs", json=payload)
+        response.raise_for_status()
+        return response.json()
+
+    def submit_validation_pack(self, pack_id: str, actor: str) -> Dict[str, Any]:
+        response = self.session.post(f"{self.base_url}/validation-packs/{pack_id}/submit", json={"actor": actor})
+        response.raise_for_status()
+        return response.json()
