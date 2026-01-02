@@ -232,3 +232,44 @@ def abort_validation_pack(pack_id: str, payload: ValidationPackAbort, db: Sessio
         details={"pack_id": str(pack.id), "reason": payload.reason}
     )
     return pack
+
+
+@router.post("/findings/{finding_id}/validation-pack", response_model=ValidationPackResponse, status_code=201)
+def create_validation_pack_for_finding(finding_id: str, payload: ValidationPackCreate, db: Session = Depends(get_db)):
+    from apps.api.models.finding import Finding
+    finding = db.query(Finding).filter(Finding.id == finding_id).first()
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    if str(finding.id) != str(payload.finding_id or finding_id):
+        payload.finding_id = finding.id
+
+    run = db.query(Run).filter(Run.id == finding.run_id).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found for finding")
+
+    pack = ValidationPack(
+        run_id=run.id,
+        project_id=run.project_id,
+        scope_id=run.scope_id,
+        finding_id=finding.id,
+        title=payload.title,
+        risk_level=payload.risk_level,
+        instructions_md=payload.instructions_md,
+        command_templates=[ct.model_dump() for ct in payload.command_templates],
+        stop_conditions=payload.stop_conditions,
+        required_evidence=payload.required_evidence,
+        status=ValidationStatus.DRAFT,
+        created_by=payload.created_by
+    )
+    db.add(pack)
+    db.commit()
+    db.refresh(pack)
+
+    audit_log(
+        db=db,
+        run_id=run.id,
+        event_type="VALIDATION_PACK_CREATED_FROM_FINDING",
+        actor=payload.created_by,
+        details={"pack_id": str(pack.id), "finding_id": str(finding.id)}
+    )
+    return pack

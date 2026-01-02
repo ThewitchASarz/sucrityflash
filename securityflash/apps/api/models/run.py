@@ -51,6 +51,9 @@ class Run(Base):
     monitored_rate_limit_rpm = Column(Integer, nullable=False, default=60)
     monitored_max_concurrency = Column(Integer, nullable=False, default=10)
     monitored_started_by = Column(String(255), nullable=True)
+    reviewer_approval = Column(String(255), nullable=True)
+    engineer_approval = Column(String(255), nullable=True)
+    started_by = Column(String(255), nullable=True)
 
     # Relationships
     executions = relationship("Execution", back_populates="run", cascade="all, delete-orphan")

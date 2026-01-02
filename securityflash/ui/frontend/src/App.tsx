@@ -270,7 +270,13 @@ function App() {
       // Step 3: Start the run (V1 API requires explicit start call)
       await axios.post(
         `${API_BASE}/api/v1/runs/${runResponse.data.id}/start`,
-        {},
+        {
+          reviewer_approval: 'ui-reviewer',
+          engineer_approval: 'ui-engineer',
+          started_by: 'ui-user',
+          monitored_rate_limit_rpm: 60,
+          monitored_max_concurrency: 10
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 

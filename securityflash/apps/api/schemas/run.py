@@ -14,8 +14,12 @@ class RunCreate(BaseModel):
 
 
 class RunStart(BaseModel):
-    """MUST-FIX A: Explicit run start request."""
-    pass  # No fields needed, just POST to trigger transition
+    """Explicit approvals required to start a run."""
+    reviewer_approval: str
+    engineer_approval: str
+    started_by: str
+    monitored_rate_limit_rpm: int = 60
+    monitored_max_concurrency: int = 10
 
 
 class RunResponse(BaseModel):
@@ -36,6 +40,9 @@ class RunResponse(BaseModel):
     monitored_rate_limit_rpm: int
     monitored_max_concurrency: int
     monitored_started_by: Optional[str]
+    reviewer_approval: Optional[str]
+    engineer_approval: Optional[str]
+    started_by: Optional[str]
 
     class Config:
         from_attributes = True

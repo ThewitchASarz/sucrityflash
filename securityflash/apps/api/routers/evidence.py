@@ -95,9 +95,9 @@ def download_evidence(run_id: str, evidence_id: str, db: Session = Depends(get_d
 
     # Special handling for REPORT type - content stored in metadata
     if evidence.evidence_type == "REPORT":
-        content = evidence.metadata.get("content")
-        mime_type = evidence.metadata.get("mime_type", "text/html")
-        filename = evidence.metadata.get("filename", f"report_{evidence_id[:8]}.html")
+        content = evidence.evidence_metadata.get("content")
+        mime_type = evidence.evidence_metadata.get("mime_type", "text/html")
+        filename = evidence.evidence_metadata.get("filename", f"report_{evidence_id[:8]}.html")
 
         if not content:
             raise HTTPException(status_code=404, detail="Report content not found")
