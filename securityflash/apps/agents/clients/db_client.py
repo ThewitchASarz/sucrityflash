@@ -121,10 +121,14 @@ class DBClient:
         self,
         run_id: str,
         agent_id: str,
+        provider: str,
         model: str,
+        role: str,
         prompt_hash: str,
         response_hash: str,
-        policy_version: str
+        policy_version: str,
+        tokens_est: int = 0,
+        latency_ms: int = 0
     ):
         """
         Log LLM call for audit.
@@ -132,19 +136,27 @@ class DBClient:
         Args:
             run_id: Run ID
             agent_id: Agent ID
+            provider: Model provider (openai, anthropic, google)
             model: Model name
+            role: Router role used
             prompt_hash: SHA256 of prompt
             response_hash: SHA256 of response
             policy_version: Policy version
+            tokens_est: Estimated token usage
+            latency_ms: Latency in milliseconds
         """
         db = self.get_session()
         try:
             llm_call = LLMCall(
                 run_id=run_id,
                 agent_id=agent_id,
+                provider=provider,
                 model=model,
+                role=role,
                 prompt_hash=prompt_hash,
                 response_hash=response_hash,
+                tokens_est=tokens_est,
+                latency_ms=latency_ms,
                 policy_version=policy_version
             )
             db.add(llm_call)

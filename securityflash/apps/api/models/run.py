@@ -2,7 +2,7 @@
 Run model - represents an agent execution session.
 MUST-FIX A: status field with CREATED, RUNNING, COMPLETED, FAILED states.
 """
-from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Enum as SQLEnum
+from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Enum as SQLEnum, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -17,6 +17,7 @@ class RunStatus(str, enum.Enum):
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    ABORTED = "ABORTED"
 
 
 class Run(Base):
@@ -43,7 +44,16 @@ class Run(Base):
     # PHASE 2: Agent daemon tracking
     agent_started_at = Column(DateTime(timezone=True), nullable=True)
 
+    # PHASE 3: Monitored mode + kill switch
+    monitored_mode_enabled = Column(Boolean, nullable=False, default=False)
+    kill_switch_armed = Column(Boolean, nullable=False, default=True)
+    kill_switch_activated_at = Column(DateTime(timezone=True), nullable=True)
+    monitored_rate_limit_rpm = Column(Integer, nullable=False, default=60)
+    monitored_max_concurrency = Column(Integer, nullable=False, default=10)
+    monitored_started_by = Column(String(255), nullable=True)
+
     # Relationships
     executions = relationship("Execution", back_populates="run", cascade="all, delete-orphan")
     findings = relationship("Finding", back_populates="run", cascade="all, delete-orphan")
     manual_tasks = relationship("ManualValidationTask", back_populates="run", cascade="all, delete-orphan")
+    validation_packs = relationship("ValidationPack", back_populates="run", cascade="all, delete-orphan")

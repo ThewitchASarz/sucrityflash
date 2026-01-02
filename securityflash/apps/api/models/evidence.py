@@ -5,6 +5,7 @@ MUST-FIX C: No delete operations allowed.
 from sqlalchemy import Column, String, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 import uuid
 from apps.api.db.base import Base
 
@@ -14,6 +15,7 @@ class Evidence(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     run_id = Column(UUID(as_uuid=True), ForeignKey("runs.id", ondelete="RESTRICT"), nullable=False, index=True)
+    validation_pack_id = Column(UUID(as_uuid=True), ForeignKey("validation_packs.id", ondelete="SET NULL"), nullable=True, index=True)
 
     evidence_type = Column(String(100), nullable=False)  # command_output, llm_response, etc.
 
@@ -31,3 +33,4 @@ class Evidence(Base):
     # Contains: tool_used, tool_version, returncode, stdout, stderr, model_attribution
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    validation_pack = relationship("ValidationPack", back_populates="evidence_items")

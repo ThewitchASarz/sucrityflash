@@ -24,6 +24,10 @@ from apps.api.models.evidence import Evidence
 from apps.api.models.audit_log import AuditLog
 from apps.api.models.agent_checkpoint import AgentCheckpoint
 from apps.api.models.llm_call import LLMCall
+from apps.api.models.validation_pack import ValidationPack
+from apps.api.models.swarm_task import SwarmTask
+from apps.api.models.swarm_lock import SwarmLock
+from apps.api.models.swarm_budget import SwarmBudget
 
 # Alembic Config object
 config = context.config
