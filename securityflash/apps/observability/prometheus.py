@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 import threading
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
 
@@ -50,8 +50,8 @@ class BaseMetric:
         self,
         name: str,
         description: str = "",
-        labelnames: Iterable[str] | None = None,
-        registry: MetricRegistry | None = None,
+        labelnames: Optional[Iterable[str]] = None,
+        registry: Optional[MetricRegistry] = None,
     ) -> None:
         self.name = name
         self.description = description
@@ -74,8 +74,8 @@ class Counter(BaseMetric):
         self,
         name: str,
         description: str = "",
-        labelnames: Iterable[str] | None = None,
-        registry: MetricRegistry | None = None,
+        labelnames: Optional[Iterable[str]] = None,
+        registry: Optional[MetricRegistry] = None,
     ) -> None:
         super().__init__(name, description, labelnames, registry)
         self._values: Dict[Tuple[str, ...], float] = {}
@@ -116,8 +116,8 @@ class Gauge(BaseMetric):
         self,
         name: str,
         description: str = "",
-        labelnames: Iterable[str] | None = None,
-        registry: MetricRegistry | None = None,
+        labelnames: Optional[Iterable[str]] = None,
+        registry: Optional[MetricRegistry] = None,
     ) -> None:
         super().__init__(name, description, labelnames, registry)
         self._values: Dict[Tuple[str, ...], float] = {}
@@ -172,9 +172,9 @@ class Histogram(BaseMetric):
         self,
         name: str,
         description: str = "",
-        buckets: Iterable[float] | None = None,
-        labelnames: Iterable[str] | None = None,
-        registry: MetricRegistry | None = None,
+        buckets: Optional[Iterable[float]] = None,
+        labelnames: Optional[Iterable[str]] = None,
+        registry: Optional[MetricRegistry] = None,
     ) -> None:
         super().__init__(name, description, labelnames, registry)
         self.buckets = tuple(sorted(buckets or (0.1, 0.5, 1, 2.5, 5, 10, 30, 60)))
@@ -230,7 +230,7 @@ class _HistogramChild:
             data["count"] += 1
 
 
-def generate_latest(registry: MetricRegistry | None = None) -> bytes:
+def generate_latest(registry: Optional[MetricRegistry] = None) -> bytes:
     """Render all metrics to Prometheus text exposition format."""
     registry = registry or REGISTRY
     lines: List[str] = []

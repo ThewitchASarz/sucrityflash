@@ -36,7 +36,7 @@ class BaseAgent(ABC):
         self,
         run_id: str,
         agent_id: str,
-        api_base_url: str | None = None,
+        api_base_url: Optional[str] = None,
         max_iterations: int = None,
         checkpoint_interval: int = 5
     ):
