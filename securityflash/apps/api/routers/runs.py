@@ -104,12 +104,24 @@ def start_run(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
+    if run.status != RunStatus.CREATED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Run must be in CREATED state to start (current: {run.status.value})"
+        )
+
     # Use FSM to transition (MUST-FIX B)
     current_user = get_current_user(request)
     transition_run_status(run, RunStatus.RUNNING, current_user, db)
 
     # Set started_at timestamp
     run.started_at = datetime.utcnow()
+    run.reviewer_approval = run_start.reviewer_approval
+    run.engineer_approval = run_start.engineer_approval
+    run.started_by = run_start.started_by
+    run.monitored_rate_limit_rpm = run_start.monitored_rate_limit_rpm
+    run.monitored_max_concurrency = run_start.monitored_max_concurrency
+    run.monitored_started_by = run_start.started_by
     db.commit()
     db.refresh(run)
 
@@ -121,7 +133,11 @@ def start_run(
         actor=current_user,
         details={
             "run_id": str(run.id),
-            "started_at": run.started_at.isoformat()
+            "started_at": run.started_at.isoformat(),
+            "reviewer_approval": run_start.reviewer_approval,
+            "engineer_approval": run_start.engineer_approval,
+            "monitored_rate_limit_rpm": run_start.monitored_rate_limit_rpm,
+            "monitored_max_concurrency": run_start.monitored_max_concurrency
         }
     )
 
@@ -403,21 +419,30 @@ def generate_run_report(run_id: str, format: str = "html", db: Session = Depends
             report_content = ReportGenerator.generate_html_report(run_id, db)
             mime_type = "text/html"
             filename = f"report_{run_id[:8]}.html"
+        summary_json = ReportGenerator.generate_json_summary(run_id, db)
 
         # Store report as Evidence
+        import hashlib
+        artifact_hash = hashlib.sha256(report_content.encode("utf-8")).hexdigest()
+        artifact_uri = f"inline://report/{run.id}"
+
         evidence = Evidence(
             run_id=run.id,
             evidence_type="REPORT",
-            metadata={
+            artifact_uri=artifact_uri,
+            artifact_hash=artifact_hash,
+            generated_by="report_service",
+            generated_at=datetime.utcnow(),
+            evidence_metadata={
                 "format": format,
                 "filename": filename,
                 "mime_type": mime_type,
                 "content": report_content,
+                "summary": summary_json,
                 "generated_at": datetime.utcnow().isoformat(),
                 "size_bytes": len(report_content.encode('utf-8'))
             },
-            collected_by="report_service",
-            source_url=None
+            validation_status="PENDING"
         )
 
         db.add(evidence)
@@ -467,7 +492,7 @@ def get_run_report(run_id: str, db: Session = Depends(get_db)):
     report_evidence = db.query(Evidence).filter(
         Evidence.run_id == run_id,
         Evidence.evidence_type == "REPORT"
-    ).order_by(Evidence.collected_at.desc()).first()
+    ).order_by(Evidence.created_at.desc()).first()
 
     if not report_evidence:
         raise HTTPException(status_code=404, detail="No report generated yet. Call POST /runs/{run_id}/report/generate first.")
@@ -476,9 +501,11 @@ def get_run_report(run_id: str, db: Session = Depends(get_db)):
         "run_id": str(run.id),
         "status": "available",
         "evidence_id": str(report_evidence.id),
-        "format": report_evidence.metadata.get("format", "html"),
-        "filename": report_evidence.metadata.get("filename"),
-        "generated_at": report_evidence.collected_at.isoformat(),
-        "size_bytes": report_evidence.metadata.get("size_bytes"),
+        "format": report_evidence.evidence_metadata.get("format", "html"),
+        "filename": report_evidence.evidence_metadata.get("filename"),
+        "generated_at": report_evidence.created_at.isoformat(),
+        "size_bytes": report_evidence.evidence_metadata.get("size_bytes"),
+        "html_report": report_evidence.evidence_metadata.get("content"),
+        "summary": report_evidence.evidence_metadata.get("summary"),
         "download_url": f"/api/v1/projects/{run.project_id}/runs/{run_id}/evidence/{report_evidence.id}/download"
     }

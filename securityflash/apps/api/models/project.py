@@ -15,6 +15,7 @@ class Project(Base):
     name = Column(String(255), nullable=False)
     customer_id = Column(String(255), nullable=False, index=True)
     primary_target_url = Column(String(500), nullable=True)  # Used to prefill first scope
+    target_url = Column(String(500), nullable=True)  # Primary engagement target (V2 UI requirement)
     status = Column(String(50), nullable=False, default="active")
     start_date = Column(DateTime(timezone=True), nullable=True)
     end_date = Column(DateTime(timezone=True), nullable=True)
@@ -22,3 +23,4 @@ class Project(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     created_by = Column(String(255), nullable=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)

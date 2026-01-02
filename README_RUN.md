@@ -98,6 +98,24 @@ curl http://localhost:8000/health
 # Expected: {"status":"healthy"}
 ```
 
+### Starting a Run (V2 approvals required)
+
+When starting a run, the UI and API now require explicit approvals. Example payload:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/runs/<run_id>/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reviewer_approval": "security-reviewer",
+    "engineer_approval": "security-engineer",
+    "started_by": "operator@example.com",
+    "monitored_rate_limit_rpm": 60,
+    "monitored_max_concurrency": 10
+  }'
+```
+
+Projects must also include a `target_url` when created to seed scopes and reports.
+
 ---
 
 ### Step 2: Start V2 BFF (Stateless Proxy)

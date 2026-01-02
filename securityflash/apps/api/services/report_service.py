@@ -18,6 +18,53 @@ class ReportGenerator:
     """Generate reports for completed runs."""
 
     @staticmethod
+    def generate_json_summary(run_id: str, db: Session) -> Dict[str, Any]:
+        """Generate JSON summary for a run."""
+        run = db.query(Run).filter(Run.id == run_id).first()
+        if not run:
+            raise ValueError(f"Run {run_id} not found")
+
+        scope = db.query(Scope).filter(Scope.id == run.scope_id).first()
+        action_specs = db.query(ActionSpec).filter(ActionSpec.run_id == run_id).all()
+        evidence_list = db.query(Evidence).filter(Evidence.run_id == run_id).all()
+        timeline = db.query(AuditLog).filter(AuditLog.run_id == run_id).order_by(AuditLog.timestamp.asc()).all()
+
+        return {
+            "run_id": str(run.id),
+            "status": run.status.value if hasattr(run.status, "value") else str(run.status),
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+            "target_url": getattr(run.project, "target_url", None) if hasattr(run, "project") else None,
+            "scope": scope.scope_json if scope else None,
+            "action_counts": {
+                "total": len(action_specs),
+                "executed": len([a for a in action_specs if a.status.value == "EXECUTED"]),
+                "failed": len([a for a in action_specs if a.status.value == "FAILED"]),
+                "pending": len([a for a in action_specs if a.status.value in ["PENDING_APPROVAL", "APPROVED"]])
+            },
+            "evidence": [
+                {
+                    "id": str(e.id),
+                    "type": e.evidence_type,
+                    "artifact_uri": e.artifact_uri,
+                    "hash": e.artifact_hash,
+                    "generated_by": e.generated_by,
+                    "generated_at": e.generated_at.isoformat() if e.generated_at else None
+                }
+                for e in evidence_list
+            ],
+            "timeline": [
+                {
+                    "timestamp": ev.timestamp.isoformat(),
+                    "event_type": ev.event_type,
+                    "actor": ev.actor,
+                    "details": ev.details
+                }
+                for ev in timeline
+            ]
+        }
+
+    @staticmethod
     def generate_html_report(run_id: str, db: Session) -> str:
         """
         Generate HTML report for a run.
