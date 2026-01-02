@@ -27,6 +27,9 @@ class ToolSpec:
     max_runtime_sec: int
     output_cap_kb: int
     requires_scope_validation: bool = True
+    manual_only: bool = False  # Phase 2/3: If True, worker MUST refuse execution
+    evidence_required: Optional[List[str]] = None  # Required evidence types for validation
+    risk_notes: Optional[str] = None  # Safety warnings for high-risk tools
 
 
 # Tool Registry - SAFE RECON ONLY

@@ -247,6 +247,35 @@ class Worker:
             )
             return
 
+        # PHASE 2/3: SAFETY GATE - Refuse manual-only tools
+        tool_spec = TOOL_REGISTRY.get(tool)
+        if tool_spec and tool_spec.manual_only:
+            logger.error(
+                f"CRITICAL SAFETY VIOLATION: Worker refusing manual-only tool {tool} "
+                f"(action {action_id[:8]}...)"
+            )
+            self._update_action_status(
+                action_id=action_id,
+                status="FAILED",
+                reason=f"Tool {tool} is manual-only. Worker cannot execute. "
+                       f"Use ValidationPack for human execution."
+            )
+            return
+
+        # PHASE 2/3: SAFETY GATE - Refuse high-risk validation actions
+        action_category = action_spec.action_json.get("category", "")
+        if action_category == "VALIDATION_HIGH_RISK":
+            logger.error(
+                f"CRITICAL SAFETY VIOLATION: Worker refusing high-risk validation "
+                f"(action {action_id[:8]}...)"
+            )
+            self._update_action_status(
+                action_id=action_id,
+                status="FAILED",
+                reason="High-risk validation actions require human execution via ValidationPack."
+            )
+            return
+
         # PHASE 2: Create Execution record BEFORE running tool
         run = db.query(Run).filter(Run.id == action_spec.run_id).first()
         tool_spec = TOOL_REGISTRY.get(tool)

@@ -83,6 +83,7 @@ class Finding(Base):
     project = relationship("Project")
     scope = relationship("Scope")
     manual_tasks = relationship("ManualValidationTask", back_populates="finding", cascade="all, delete-orphan")
+    validation_packs = relationship("ValidationPack", back_populates="finding")
 
     def __repr__(self):
         return f"<Finding {self.id} severity={self.severity.value} status={self.status.value} title='{self.title}'>"

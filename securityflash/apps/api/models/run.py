@@ -47,3 +47,4 @@ class Run(Base):
     executions = relationship("Execution", back_populates="run", cascade="all, delete-orphan")
     findings = relationship("Finding", back_populates="run", cascade="all, delete-orphan")
     manual_tasks = relationship("ManualValidationTask", back_populates="run", cascade="all, delete-orphan")
+    validation_packs = relationship("ValidationPack", back_populates="run", cascade="all, delete-orphan")
