@@ -10,8 +10,8 @@ from typing import Dict, Any, Optional, List
 import logging
 import time
 from apps.agents.clients.control_plane_client import ControlPlaneClient
-from apps.agents.clients.model_client_openai import ModelClient
 from apps.agents.clients.db_client import DBClient
+from apps.agents.model_router import ModelRouter, Role
 from apps.api.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -58,8 +58,13 @@ class BaseAgent(ABC):
         # Initialize clients
         resolved_api_base = api_base_url or settings.CONTROL_PLANE_API_URL or f"http://localhost:{settings.PORT}/api/v1"
         self.api_client = ControlPlaneClient(resolved_api_base)
-        self.model_client = ModelClient()
         self.db_client = DBClient()
+        self.model_router = ModelRouter(
+            db_client=self.db_client,
+            run_id=self.run_id,
+            agent_id=self.agent_id,
+            policy_version=None  # will be set after run data load
+        )
 
         # Load run and scope
         logger.info(f"Initializing agent {agent_id} for run {run_id}")
@@ -72,6 +77,7 @@ class BaseAgent(ABC):
         )
         self.scope = scope_response["scope_json"]
         self.policy_version = self.run_data["policy_version"]
+        self.model_router.policy_version = self.policy_version
 
         # Max iterations
         self.max_iterations = max_iterations or self.run_data.get("max_iterations", 100)
@@ -230,23 +236,11 @@ class BaseAgent(ABC):
         Returns:
             LLM response text
         """
-        result = self.model_client.query_llm(
+        return self.model_router.invoke(
             prompt=prompt,
             system_message=system_message,
-            model=model
+            role=Role.VALIDATOR
         )
-
-        # Log to audit
-        self.db_client.log_llm_call(
-            run_id=self.run_id,
-            agent_id=self.agent_id,
-            model=result["model"],
-            prompt_hash=result["prompt_hash"],
-            response_hash=result["response_hash"],
-            policy_version=self.policy_version
-        )
-
-        return result["response"]
 
     def is_in_scope(self, target: str) -> bool:
         """

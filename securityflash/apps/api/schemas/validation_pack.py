@@ -1,65 +1,68 @@
-"""ValidationPack Pydantic schemas."""
-from pydantic import BaseModel, UUID4
-from typing import Optional, List, Dict, Any
+"""
+Pydantic schemas for Validation Packs.
+"""
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, UUID4, Field
 from datetime import datetime
+from apps.api.models.validation_pack import ValidationRiskLevel, ValidationStatus
+
+
+class CommandTemplate(BaseModel):
+    label: str
+    command: str
+    params_schema: Dict[str, Any] = Field(default_factory=dict)
+    safety_notes: Optional[str] = None
 
 
 class ValidationPackCreate(BaseModel):
-    """Create ValidationPack request."""
-    finding_id: Optional[UUID4] = None
-    action_spec_id: Optional[UUID4] = None
     title: str
-    category: str
-    risk_level: str
+    risk_level: ValidationRiskLevel
     instructions_md: str
-    command_templates: Optional[List[Dict[str, str]]] = None
-    required_evidence_types: Optional[List[str]] = None
-    evidence_checklist_md: Optional[str] = None
-    target_must_match_scope: bool = True
-    rate_limit_seconds: Optional[Dict[str, int]] = None
-    safety_notes: Optional[str] = None
+    command_templates: List[CommandTemplate]
+    stop_conditions: List[str]
+    required_evidence: List[str]
+    finding_id: Optional[UUID4] = None
     created_by: str
 
 
-class ValidationPackUpdate(BaseModel):
-    """Update ValidationPack."""
-    completed_by: str
-    execution_notes: Optional[str] = None
+class ValidationPackSubmit(BaseModel):
+    actor: str
 
 
-class AttachEvidenceRequest(BaseModel):
-    """Attach evidence to ValidationPack."""
-    evidence_ids: List[str]
+class ValidationPackApproval(BaseModel):
+    approver: str
+
+
+class ValidationPackAttachEvidence(BaseModel):
+    evidence_id: UUID4
+    actor: str
+
+
+class ValidationPackAbort(BaseModel):
+    actor: str
+    reason: str
 
 
 class ValidationPackResponse(BaseModel):
-    """ValidationPack response."""
     id: UUID4
     run_id: UUID4
+    project_id: UUID4
+    scope_id: UUID4
     finding_id: Optional[UUID4]
-    action_spec_id: Optional[UUID4]
     title: str
-    category: str
-    risk_level: str
+    risk_level: ValidationRiskLevel
     instructions_md: str
-    command_templates: Optional[List[Dict[str, str]]]
-    required_evidence_types: Optional[List[str]]
-    evidence_checklist_md: Optional[str]
-    target_must_match_scope: bool
-    rate_limit_seconds: Optional[Dict[str, int]]
-    safety_notes: Optional[str]
-    status: str
+    command_templates: List[CommandTemplate]
+    stop_conditions: List[str]
+    required_evidence: List[str]
+    status: ValidationStatus
+    approved_by_reviewer: Optional[str]
+    approved_by_engineer: Optional[str]
     created_by: str
-    approved_by: Optional[str]
-    assigned_to: Optional[str]
-    completed_by: Optional[str]
     created_at: datetime
-    approved_at: Optional[datetime]
-    started_at: Optional[datetime]
-    completed_at: Optional[datetime]
     updated_at: datetime
-    evidence_ids: Optional[List[str]]
-    execution_notes: Optional[str]
+    completed_at: Optional[datetime]
+    abort_reason: Optional[str]
 
     class Config:
         from_attributes = True

@@ -25,6 +25,8 @@ class Settings(BaseSettings):
 
     # OpenAI
     OPENAI_API_KEY: str
+    ANTHROPIC_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = None
 
     # Security
     POLICY_SIGNING_SECRET: str

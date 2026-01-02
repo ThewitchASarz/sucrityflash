@@ -89,7 +89,7 @@ app.include_router(tools.router, prefix="/api/v1")
 app.include_router(executions.router)  # PHASE 2: Executions
 app.include_router(findings.router)  # PHASE 2: Findings
 app.include_router(manual_validation_tasks.router)  # PHASE 3: Manual Validation Tasks
-app.include_router(validation_packs.router)  # PHASE 2/3: ValidationPacks (high-risk human validation)
+app.include_router(validation_packs.router)  # PHASE 3: Validation Packs
 
 
 @app.get("/health")
